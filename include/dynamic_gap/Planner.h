@@ -157,11 +157,15 @@ namespace dynamic_gap
             ros::Subscriber manualTrajSelectionSub_;
             ros::Publisher manualCandidateMarkerPub_;
             ros::Subscriber rvizPublishPointSubsciber_; //for manuel_gap_selection click to point
+            ros::Subscriber trajCreationPointSub_; //for manuel_traj_creation click to point
 
             int selectedManualCandidateId_ = -1;
-            bool manualSelectionMode_ = false;
+            bool manualSelectionMode_ = true;
             geometry_msgs::PointStamped cursorPosOdomFrame_;
             bool hasCursorPos_ = false;
+            geometry_msgs::PointStamped trajCreationPointOdomFrame_;
+            bool hasTrajCreationPoint_ = false;
+            bool isTrackingCreatedTraj_ = false;
 
             std::vector<ManualCandidate> currentManualCandidates_;
             boost::mutex manualSelectionMutex_;
@@ -170,6 +174,9 @@ namespace dynamic_gap
 
             //callback function for RViz publish point subscriber
             void rvizPublishPointSubsciberCB(const geometry_msgs::PointStamped::ConstPtr& msg);
+
+            void trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg);
+            bool tryHandleTrajCreationPoint(int & trajFlag);
 
             void publishManualCandidateMarkers(const std::vector<Trajectory>& gapTrajs,
                                             const std::vector<Trajectory>& ungapTrajs,

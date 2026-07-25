@@ -46,6 +46,64 @@ namespace dynamic_gap
         delete timeKeeper_;
     }
 
+    bool Planner::tryHandleTrajCreationPoint(int & trajFlag) {
+        if (hasTrajCreationPoint_)
+        {
+            geometry_msgs::PointStamped trajCreationPointRbtFrame;
+            tf2::doTransform(trajCreationPointOdomFrame_, trajCreationPointRbtFrame, odom2rbt_);
+
+            geometry_msgs::PoseStamped targetPoint;
+            targetPoint.header = trajCreationPointRbtFrame.header;
+            targetPoint.pose.position = trajCreationPointRbtFrame.point;
+            targetPoint.pose.orientation.w = 1;
+
+            Trajectory createdTraj = gapTrajGenerator_->generateTrajectoryToPointV2(rbtPoseInSensorFrame_, targetPoint);
+
+            ROS_INFO_STREAM_NAMED("Planner", "trajCreation: raw generated " << createdTraj.getPathRbtFrame().poses.size()
+                << " poses, target (rbt frame): (" << targetPoint.pose.position.x << ", " << targetPoint.pose.position.y << ")");
+
+            if (createdTraj.getPathRbtFrame().poses.empty())
+            {
+                ROS_WARN_STREAM_NAMED("Planner", "trajCreation: empty path, aborting");
+                hasTrajCreationPoint_ = false;
+                return false;
+            }
+
+            createdTraj = gapTrajGenerator_->processTrajectory(createdTraj);
+            createdTraj.setPathOdomFrame(gapTrajGenerator_->transformPath(createdTraj.getPathRbtFrame(), rbt2odom_));
+
+            float dist = std::sqrt(std::pow(targetPoint.pose.position.x - rbtPoseInSensorFrame_.pose.position.x, 2) +
+                                    std::pow(targetPoint.pose.position.y - rbtPoseInSensorFrame_.pose.position.y, 2));
+            float estimatedCompletionTime = dist / cfg_.rbt.vx_absmax;
+
+            setCurrentTraj(createdTraj);
+            setCurrentTrajTrackingStartTime(ros::Time::now());
+            setCurrentTrajLifespan(ros::Duration(estimatedCompletionTime));
+            trajVisualizer_->drawCurrentTrajectory(createdTraj);
+            trajFlag = GAP;
+
+            hasTrajCreationPoint_ = false;
+            isTrackingCreatedTraj_ = true;
+            return true;
+        }
+
+        if (isTrackingCreatedTraj_)
+        {
+            ros::Duration trackingTime = ros::Time::now() - currentTrajTrackingStartTime_;
+            if (trackingTime > currentTrajLifespan_)
+            {
+                isTrackingCreatedTraj_ = false;
+            }
+            else
+            {
+                trajFlag = GAP;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool Planner::initialize(const std::string & name)
     {
         // ROS_INFO_STREAM("starting initialize");
@@ -127,6 +185,8 @@ namespace dynamic_gap
                                         &Planner::manualTrajSelectionCB, this);
 
         rvizPublishPointSubsciber_ = nh_.subscribe("/gap_selection_point", 1, &Planner::rvizPublishPointSubsciberCB, this); //initlize the pubcriber for the publish point RVIz button on manuel trajectroy selction
+
+        trajCreationPointSub_ = nh_.subscribe("/traj_creation_point", 1, &Planner::trajCreationPointCB, this);
 
         manualCandidateMarkerPub_ = nh_.advertise<visualization_msgs::MarkerArray>(
             "/manual_candidate_markers", 1);
@@ -662,6 +722,16 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         hasCursorPos_ = true;
     }
 
+    void Planner::trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg) {
+        boost::mutex::scoped_lock lock(manualSelectionMutex_); // or a separate mutex if this needs independent locking
+
+        if (!haveTFs_)
+            return;
+
+        tf2::doTransform(*msg, trajCreationPointOdomFrame_, map2odom_);
+        hasTrajCreationPoint_ = true;
+    }
+
     void Planner::publishManualCandidateMarkers(const std::vector<Trajectory>& gapTrajs,
                                             const std::vector<Trajectory>& ungapTrajs,
                                             const std::vector<Trajectory>& idlingTrajs)
@@ -788,6 +858,12 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
                                          const std::vector<Trajectory>& idlingTrajs)
     {
         boost::mutex::scoped_lock lock(manualSelectionMutex_);
+
+        if (tryHandleTrajCreationPoint(trajFlag)) {
+            return true;
+        }
+
+        // existing cursor-nearest-gap-trajectory logic continues here, unchanged
 
         // if no cursor position available, keep current trajectory
         if (!hasCursorPos_)
@@ -2080,10 +2156,26 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         }
         else
         {
-            pickTraj(trajFlag, lowestCostTrajIdx,
+            bool handledTrajCreation = false;
+            if (hasTrajCreationPoint_ || isTrackingCreatedTraj_) {
+                handledTrajCreation = tryHandleTrajCreationPoint(trajFlag);
+            } else {
+                pickTraj(trajFlag, lowestCostTrajIdx,
                         gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
                         ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
                         idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
+            }
+
+            if (handledTrajCreation) {
+                chosenTraj = getCurrentTraj();
+                for (Gap * planningGap : planningGaps) delete planningGap;
+                for (Gap * copiedRawGap : copiedRawGaps) delete copiedRawGap;
+                for (Ungap * ungap : ungaps) delete ungap;
+                for (GapTube * tube : gapTubes) delete tube;
+                timeKeeper_->stopTimer(PLAN);
+                timeKeeper_->computeAverageNumberGaps(gapCount);
+                return;
+            }
         }
 
         timeKeeper_->stopTimer(TRAJ_PICK);
