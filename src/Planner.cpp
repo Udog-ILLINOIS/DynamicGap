@@ -1972,6 +1972,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         {
             ROS_WARN_STREAM_NAMED("Planner", "Not ready to plan, initialized: " << initialized_ << ", laser scan: " << hasLaserScan_ << ", global goal: " << hasGlobalGoal_);
             chosenTraj = Trajectory();
+            trajFlag = NONE;
             return;            
         }
 
@@ -1979,6 +1980,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         {
             ROS_ERROR_STREAM_NAMED("Planner", "In collision");
             chosenTraj = Trajectory();
+            trajFlag = NONE;
             return;
         }
 

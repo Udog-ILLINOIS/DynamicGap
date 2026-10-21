@@ -89,3 +89,23 @@ target_link_libraries(${PROJECT_NAME}
 	${catkin_LIBRARIES}
 	${PYTHON_LIBRARIES}
 )
+
+# Generated dynamic_reconfigure headers must exist before the library compiles
+# (otherwise building only the test target fails on a clean build space).
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
+#############
+## Testing ##
+#############
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(${PROJECT_NAME}_test
+    test/test_main.cpp
+    test/test_trajflag_uninitialised.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_test)
+    target_link_libraries(${PROJECT_NAME}_test ${PROJECT_NAME} ${catkin_LIBRARIES})
+    # Use RPATH (not RUNPATH) so the freshly built libdynamic_gap.so is loaded even when
+    # LD_LIBRARY_PATH lists an underlay workspace that has its own (older) copy.
+    set_target_properties(${PROJECT_NAME}_test PROPERTIES LINK_FLAGS "-Wl,--disable-new-dtags")
+  endif()
+endif()

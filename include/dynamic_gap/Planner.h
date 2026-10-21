@@ -146,6 +146,8 @@ namespace dynamic_gap
             void setReachedGlobalGoal(const bool & status) { reachedGlobalGoal_ = status; }
 
         private:
+            friend class PlannerTestAccess; /**< Unit-test access to internal state (test/) */
+
             struct ManualCandidate
             {
                 int display_id;
