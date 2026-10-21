@@ -5,9 +5,12 @@ It merges and supersedes `IL_DATA_COLLECTION_PLAN.md` (original issue list),
 `IL_DATA_COLLECTION_DESIGN.md` (first fix design) and
 `IL_DATA_COLLECTION_REVIEW.md` (review of both).
 
-**Status (2026-10-07).** Phase 0 code checks are done; results are in 1.11
-and in each CHECK issue below. Decisions D1–D7 are still open. No source
-file has been modified yet.
+**Status (2026-10-21).** Phase 0 code checks are done; results are in 1.11
+and in each CHECK issue below. Decisions D1–D7 are still open. None of
+fixes A–D (Part 1) is implemented yet. A separate review of the whole
+collection pipeline (2026-10-17) found 35 more issues (PL-01 to PL-35,
+Part 3); 6 are fixed, 3 are in progress, the rest are open. Part 3 also
+lists the M-xx issues from the IL model design and other findings.
 
 **Basis.** Line references are pinned to these commits (R-34):
 
@@ -622,6 +625,9 @@ check; the result is in 1.11.
 **R-16 — Action space differs from the deployed planner** (MED)
 - *Problem.* "Go straight" and "wait" are disabled, so the human must always
   pick a gap.
+- *Correction (2026-10-17, PL-31).* They are disabled in both modes: ungap
+  and idling trajectory generation is commented out (`Planner.cpp:2117-2128`),
+  so the autonomous planner is gap-only too.
 - *Fix.* Flag ticks where either would have applied (D6).
 
 **R-01 — Autonomous pick and cost are not free** (HIGH)
@@ -777,12 +783,106 @@ check; the result is in 1.11.
 | Stream | Rate | Source |
 |---|---|---|
 | Laser scan | 25 Hz | `rto/model_params.yaml:39` |
-| Planning loop | 5 Hz | `configs/mbf/local/dgap_local_planner_params.yaml:5` |
+| Planning loop | 10 Hz (corrected 2026-10-17; the 5 Hz in the dgap file is overridden) | `configs/mbf/move_base_params.yaml:10`, loaded after the dgap file |
 | Cursor | 10 Hz | `continuous_gap_selection_tool.cpp:29` |
 
 Scan: 512 beams, ±pi, `max_range` 5.0 m.
 
 ---
+
+# Part 3 — Pipeline review issues (2026-10-17)
+
+A review of the whole collection pipeline, beyond the planner: RViz tool,
+planner, task generator, launch files, mbf config, and the
+`arena_evaluation` recorder and metrics. The recorder and metrics produced
+the 80% (manual) and 50–60% (autonomous) success figures, so treat those
+figures as unreliable until PL-01 to PL-04 are fixed.
+
+**Fix workflow.** Each fix lives on branch `il-data-pipeline-fixes` in the
+repo it touches and is pushed to the Udog-ILLINOIS fork. Each fixed issue has
+a doc in `docs/il_pipeline_fixes/NN-*.md` (what changed, why, effects, test)
+and its own test.
+
+**Status values.** Fixed: committed with a passing test and sim smoke test.
+In progress: work in the tree, not committed. Open: not started. Docs only:
+out of scope for this pass by decision; documented, not changed.
+
+## 3.1 Status
+
+| ID | Sev | Issue | Repo | Status |
+|---|---|---|---|---|
+| PL-01 | CRIT | Old recorders keep writing into earlier folders after `change_directory` | evaluation | Fixed `edaa1dc`, [doc](il_pipeline_fixes/01-recorder-duplicate-folders.md) |
+| PL-02 | CRIT | Recorder time is `secs*1e10+nsecs`; metrics divide by 1e10 | evaluation | Fixed `473ac6e`, [doc](il_pipeline_fixes/02-recorder-timestamp-scale.md) |
+| PL-03 | CRIT | Success never checks the goal; timeouts can score as success | evaluation | Open |
+| PL-04 | CRIT | Metrics episode loop starts at 0 and stops at the first gap | evaluation | Open |
+| PL-05 | CRIT | `params.yaml` does not record `man_gap` | evaluation | Open |
+| PL-06 | CRIT | `manualSelectionMode_` defaults to true; bad `/man_gap` is ignored | dynamic_gap | Open |
+| PL-07 | CRIT | No IL topics recorded (cursor, candidates, selection, goal) | arena-rosnav | Open (`record_il.launch`) |
+| PL-08 | HIGH | Recorder misses topics advertised late (`cmd_vel`); stale rows | evaluation | Fixed `95548ae`, [doc](il_pipeline_fixes/08-recorder-topic-discovery.md) |
+| PL-09 | MED | `start_goal.csv` gets one row per tick | evaluation | In progress (partial edits in tree) |
+| PL-10 | LOW | `after_reset_task()` called twice per reset | arena-rosnav | Fixed `37829ef80`, [doc](il_pipeline_fixes/10-double-resume.md) |
+| PL-11 | MED | Cursor timer runs on sim time; republishes the last-move stamp | arena-rosnav | Open |
+| PL-12 | MED | Two nodes named `/rviz` when `headless` ≤ 1 | arena-rosnav | Fixed `7d65f68dc`, [doc](il_pipeline_fixes/12-duplicate-rviz.md) |
+| PL-13 | HIGH | Candidate markers never deleted; ghost numbers on screen | dynamic_gap | Open |
+| PL-14 | MED | Manual-mode topics are global; shared across robots | dynamic_gap, arena-rosnav | Open |
+| PL-15 | MED | `controller_frequency` / patience defined twice | simulation-setup | In progress (fix written, not reviewed or committed) |
+| PL-16 | HIGH | Manual mode with no cursor drives under obstacle avoidance | dynamic_gap | Open (approved: hold still) |
+| PL-17 | HIGH | Cursor pick never sets start time, lifespan or model IDs | dynamic_gap | Open |
+| PL-18 | HIGH | Click-to-move active in autonomous mode; wrong status text; short lifespan | dynamic_gap, arena-rosnav | Open |
+| PL-19 | HIGH | RViz toolbar can teleport the robot, move the goal or force a reset | dynamic_gap | Open |
+| PL-20 | HIGH | Low speed in manual mode triggers "Planning Failed" and FAILURE | dynamic_gap | Open |
+| PL-21 | HIGH | `trajFlag` uninitialised on early returns | dynamic_gap | In progress (partial edits in tree) |
+| PL-22 | HIGH | `/scenario_reset` published after the teleport | arena-rosnav | Fixed `9859a394a`, [doc](il_pipeline_fixes/22-reset-begin-signal.md) |
+| PL-23 | HIGH | Collisions do not end episodes | arena-rosnav | Docs only (decision 2026-10-17) |
+| PL-24 | MED | `scan_` newer than the gaps on collision ticks | dynamic_gap | Open |
+| PL-25 | HIGH | Ground-truth pedestrian maps never cleared | dynamic_gap | Open |
+| PL-26 | HIGH | Operator sees ground truth in RViz | dynamic_gap | Docs only (decision 2026-10-17) |
+| PL-27 | MED | Highlight follows the numeric selector, not the cursor pick | dynamic_gap | Open |
+| PL-28 | LOW | Click-to-move handled without the lock in autonomous mode | dynamic_gap | Open |
+| PL-29 | HIGH | Cursor stores a map point; drifts with the camera, holds failed picks | arena-rosnav, dynamic_gap | Open (approved: re-project each publish) |
+| PL-30 | HIGH | GRU feature logger only on other branches | dynamic_gap | Docs only (decision 2026-10-17) |
+| PL-31 | MED | Ungap and idling disabled in both modes | dynamic_gap | Docs only (decision 2026-10-17) |
+| PL-32 | LOW | Velocity metric computed from positions | evaluation | Open |
+| PL-33 | MED | Collisions checked only on 400 ms samples | evaluation | Open |
+| PL-34 | LOW | Pedestrian heading from force, no velocity recorded | evaluation | Open |
+| PL-35 | LOW | Candidate labels black on dark grey, 2 m tall | dynamic_gap | Open |
+| PL-36 | — | Repair script for already-recorded folders (dedupe, time fix) | evaluation | Open |
+
+Approved behaviour changes and the cursor-continuity requirement (a still
+mouse keeps its selection; nothing may require mouse movement) are recorded
+in each issue's doc as it is fixed.
+
+## 3.2 Issues from the IL model design (M-xx)
+
+From `IL_MODEL_AND_DATA_DESIGN.md`. All open.
+
+| ID | Sev | Issue |
+|---|---|---|
+| M-01 | BLOCKER (MoG route) | No teleop or continuous human action data exists |
+| M-02 | HIGH | The GRU does not run inside the planner; its tracks cannot be recorded |
+| M-03 | HIGH | DynamicGap's own pick is never computed in manual mode |
+| M-04 | HIGH | The 80% human result had no `changeTrajectory()` checks or hysteresis |
+| M-05 | HIGH | No HG-DAgger infrastructure (arbiter, takeover, `/control_owner`) |
+| M-06 | MED | `cursor_live` cannot tell watching from intervening |
+| M-07 | MED | The frozen GRU checkpoint is not pinned |
+| M-08 | MED | Design pools 360 beams; the scan has 512 |
+| M-09 | LOW | Policy rate 10 Hz vs planner tick 5 Hz |
+
+Decisions D8–D11 (teleop or cursor-only, record DynamicGap's pick, a
+safety-checks-on condition, which GRU) are open; see the design doc.
+
+## 3.3 Other findings (not yet filed)
+
+| Finding | Source |
+|---|---|
+| `scripts/create_plots` `resize_time` divides seconds by 1e9, so plot time axes are wrong | PL-02 work |
+| `time_diff` comment in the metrics files says ns; the value is seconds | PL-02 work |
+| `Recorder._record` treats a time of 0 as unset | PL-02 work |
+| Metrics crash on an empty data cell (row written before the first odom/pedsim message) | PL-08 work |
+| If `Recorder()` raises during `change_directory`, recording stops until the next call | PL-01 work |
+| `reset_task()` has no lock; a manual `/reset_task` during a timer reset duplicates the begin id | PL-22 work |
+| `show_rviz:=false` does not turn arena.rviz off (behaviour change, needs a decision) | PL-12 work |
+| The effective controller rate is 10 Hz (`move_base_params.yaml`), not dgap's 5 Hz; 1.11 and the system map say 5 Hz | PL-15 work, sim runs (~9 Hz cmd_vel) |
 
 # Unfiled / new issues
 
