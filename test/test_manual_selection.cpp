@@ -206,3 +206,135 @@ TEST_F(ManualPlannerTest, ResetKeepsGapsInAutonomousMode)
 
     EXPECT_EQ(8u, PlannerTestAccess::gapCount(planner_));
 }
+
+// Fix A/B: one candidate list per tick, selected from and recorded
+namespace
+{
+    Trajectory trajTo(double x, double y, int poses = 6)
+    {
+        geometry_msgs::PoseArray path;
+        path.header.frame_id = "odom";
+        std::vector<float> timing;
+        for (int i = 0; i < poses; i++)
+        {
+            geometry_msgs::Pose pose;
+            pose.position.x = x * (i + 1) / poses;
+            pose.position.y = y * (i + 1) / poses;
+            pose.orientation.w = 1.0;
+            path.poses.push_back(pose);
+            timing.push_back(0.5f * i);
+        }
+        Trajectory traj(path, timing);
+        traj.setPathOdomFrame(path);
+        return traj;
+    }
+
+    struct Tick
+    {
+        std::vector<dynamic_gap::GapTube *> tubes;
+        std::vector<Trajectory> trajs;
+        ~Tick() { for (auto * tube : tubes) delete tube; }
+    };
+
+    void addCandidate(Tick & tick, const Trajectory & traj)
+    {
+        dynamic_gap::Gap gap("base_link", 10, 2.0f, 20, 2.0f, false);
+        tick.tubes.push_back(new dynamic_gap::GapTube(&gap));
+        tick.trajs.push_back(traj);
+    }
+}
+
+TEST_F(ManualPlannerTest, SelectsNearestFeasibleAndRecordsTheList)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+    PlannerTestAccess::cursorCB(planner_, cursor(true, true, 4.0, 1.0));  // odom (3, -1)
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, 1.0));
+    addCandidate(tick, Trajectory());  // infeasible
+    addCandidate(tick, trajTo(3.0, -1.0));
+
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    int selected = PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
+
+    EXPECT_EQ(2, selected);
+    EXPECT_EQ(dynamic_gap::GAP, trajFlag);
+    ASSERT_EQ(3u, sample.candidates.size());
+    EXPECT_EQ(0, sample.candidates[0].display_id);
+    EXPECT_EQ(-1, sample.candidates[1].display_id);
+    EXPECT_FALSE(sample.candidates[1].feasible);
+    EXPECT_EQ(1, sample.candidates[2].display_id);
+    EXPECT_EQ(2, sample.candidates[2].traj_idx);
+    EXPECT_EQ(sample.SOURCE_GAP_CURSOR, sample.source);
+    EXPECT_EQ(2, sample.selected_idx);
+    EXPECT_NEAR(0.0, sample.candidates[2].cursor_dist, 1e-6);
+    EXPECT_NEAR(2.0, sample.candidates[0].cursor_dist, 1e-6);
+    // the cursor recorded is the one used
+    EXPECT_DOUBLE_EQ(3.0, sample.cursor_odom.x);
+    EXPECT_DOUBLE_EQ(-1.0, sample.cursor_odom.y);
+    EXPECT_TRUE(sample.cursor_valid);
+    EXPECT_TRUE(sample.cursor_live);
+    // the chosen trajectory is the selected one; the lifespan is its timing span
+    ASSERT_EQ(6u, chosen.getPathOdomFrame().poses.size());
+    EXPECT_DOUBLE_EQ(-1.0, chosen.getPathOdomFrame().poses.back().position.y);
+    EXPECT_NEAR(2.5, PlannerTestAccess::currentLifespan(planner_).toSec(), 1e-6);
+}
+
+TEST_F(ManualPlannerTest, NoCursorSelectsNothing)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, 1.0));
+
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::GAP;
+    EXPECT_EQ(-1, PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen));
+    EXPECT_EQ(dynamic_gap::NONE, trajFlag);
+    EXPECT_EQ(sample.SOURCE_NONE, sample.source);
+    EXPECT_EQ(1u, sample.candidates.size());
+    EXPECT_FALSE(sample.cursor_valid);
+    EXPECT_TRUE(chosen.getPathOdomFrame().poses.empty());
+}
+
+TEST_F(ManualPlannerTest, ResetIsAppliedAtTheNextTick)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+    PlannerTestAccess::setCurrentTraj(planner_, trajTo(5.0, 0.0));
+
+    std_msgs::Int16::Ptr reset(new std_msgs::Int16());
+    reset->data = 2;
+    PlannerTestAccess::scenarioResetCB(planner_, reset);
+    // the callback does not touch the planning thread's trajectory
+    EXPECT_FALSE(PlannerTestAccess::currentTraj(planner_).getPathOdomFrame().poses.empty());
+
+    Tick tick;
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
+    EXPECT_TRUE(PlannerTestAccess::currentTraj(planner_).getPathOdomFrame().poses.empty());
+}
+
+TEST_F(ManualPlannerTest, FailedTransformIsNotLive)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+    PlannerTestAccess::cursorCB(planner_, cursor(true, true, 4.0, 1.0));
+    manual_gap_msgs::CursorState::Ptr msg = cursor(true, true, 9.0, 9.0);
+    msg->header.frame_id = "nowhere";
+    PlannerTestAccess::cursorCB(planner_, msg);
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, -1.0));
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
+    // the last good point is still used, but the label is not live
+    EXPECT_EQ(0, sample.selected_idx);
+    EXPECT_TRUE(sample.cursor_valid);
+    EXPECT_FALSE(sample.cursor_live);
+}

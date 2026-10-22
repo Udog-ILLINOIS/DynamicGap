@@ -63,5 +63,12 @@ namespace dynamic_gap
             static bool holdStill(Planner & planner) { return planner.manualHoldStill_; }
             static void setHoldStill(Planner & planner, bool value) { planner.manualHoldStill_ = value; }
             static void setTrajVisualizer(Planner & planner) { planner.trajVisualizer_ = new TrajectoryVisualizer(planner.nh_, planner.cfg_); }
+            static int selectManualTrajectory(Planner & planner, int & trajFlag, const std::vector<GapTube *> & gapTubes,
+                                              const std::vector<Trajectory> & gapTrajs, manual_gap_msgs::ManualGapSample & sample,
+                                              Trajectory & chosenTraj)
+            { return planner.selectManualTrajectory(trajFlag, gapTubes, gapTrajs, sample, chosenTraj); }
+            static Trajectory currentTraj(Planner & planner) { return planner.currentTraj_; }
+            static ros::Duration currentLifespan(Planner & planner) { return planner.currentTrajLifespan_; }
+            static void setCurrentTraj(Planner & planner, const Trajectory & traj) { planner.currentTraj_ = traj; }
     };
 }

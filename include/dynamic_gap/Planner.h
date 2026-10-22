@@ -176,6 +176,7 @@ namespace dynamic_gap
             manual_gap_msgs::CursorState lastCursorMsg_; /**< Last cursor message, verbatim */
             ros::WallTime cursorRxWall_; /**< Wall-clock receipt time of lastCursorMsg_ */
             bool hasCursorMsg_ = false;
+            bool cursorTfOk_ = false; /**< The last picked cursor point could be transformed to odom */
             const double cursorTimeout_ = 0.5; /**< Wall-clock seconds without a cursor message before the tool counts as gone */
 
             int episodeId_ = -1; /**< Last /scenario_reset id */
@@ -185,6 +186,7 @@ namespace dynamic_gap
             uint32_t manualTickSeq_ = 0;
 
             bool manualHoldStill_ = false; /**< Manual mode: command zero velocity this tick */
+            bool manualResetPending_ = false; /**< Manual mode: an episode reset to apply at the next tick */
             int selectedLeftModelID_ = -1; /**< Identity of the cursor-selected gap */
             int selectedRightModelID_ = -1;
 
@@ -242,12 +244,20 @@ namespace dynamic_gap
             * \param gapTubes gap tubes of this tick
             * \param gapTrajs trajectory per gap tube (empty if infeasible)
             * \param sample per-tick sample to fill
+            * \param chosenTraj trajectory to track (copied under the selection lock)
             * \return index into currentManualCandidates_ of the selection, -1 if none
             */
             int selectManualTrajectory(int & trajFlag,
                                        const std::vector<GapTube *> & gapTubes,
                                        const std::vector<Trajectory> & gapTrajs,
-                                       manual_gap_msgs::ManualGapSample & sample);
+                                       manual_gap_msgs::ManualGapSample & sample,
+                                       Trajectory & chosenTraj);
+
+            /**
+            * \brief Record the cursor state in the sample (caller holds manualSelectionMutex_)
+            * \param cursorUsable whether the cursor was usable for selection this tick
+            */
+            void fillSampleCursor(manual_gap_msgs::ManualGapSample & sample, const bool & cursorUsable);
 
             /**
             * \brief Fill the per-tick fields of the sample and publish it

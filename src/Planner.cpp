@@ -706,14 +706,13 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         if (manualSelectionMode_)
         {
-            // nothing chosen in the previous episode carries over
+            // nothing chosen in the previous episode carries over; the
+            // trajectory state belongs to the planning thread, which applies
+            // this at its next tick (selectManualTrajectory)
             hasTrajCreationPoint_ = false;
             isTrackingCreatedTraj_ = false;
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
-            setCurrentTraj(Trajectory());
-            setCurrentLeftGapPtModelID(nullptr);
-            setCurrentRightGapPtModelID(nullptr);
+            selectedManualCandidateId_ = -1;
+            manualResetPending_ = true;
         }
     }
 
@@ -820,6 +819,9 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (!msg->pick_ok || !haveTFs_)
             return;
 
+        // stays false until a point is transformed; the last good point is kept
+        cursorTfOk_ = false;
+
         geometry_msgs::PointStamped cursorPoint;
         cursorPoint.header = msg->header;
         cursorPoint.point = msg->point;
@@ -842,6 +844,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         tf2::doTransform(cursorPoint, cursorPosOdomFrame_, cursorFrame2Odom);
         hasCursorPos_ = true;
+        cursorTfOk_ = true;
     }
 
     bool Planner::isCursorUsable()
@@ -902,10 +905,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             text_marker.pose.position.z += 0.35;
             text_marker.scale.z = 0.5;
 
-            // the selected candidate is green: the cursor pick, or the numeric
-            // selection when no cursor pick exists
-            bool selected = (selectedIdx >= 0) ? (int(i) == selectedIdx)
-                                               : (c.display_id == selectedManualCandidateId_);
+            // green: the candidate the robot follows this tick
+            bool selected = int(i) == selectedIdx;
             text_marker.color.a = 1.0;
             text_marker.color.r = selected ? 0.0 : 1.0;
             text_marker.color.g = 1.0;
@@ -956,11 +957,24 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
     int Planner::selectManualTrajectory(int & trajFlag,
                                         const std::vector<GapTube *> & gapTubes,
                                         const std::vector<Trajectory> & gapTrajs,
-                                        manual_gap_msgs::ManualGapSample & sample)
+                                        manual_gap_msgs::ManualGapSample & sample,
+                                        Trajectory & chosenTraj)
     {
         boost::mutex::scoped_lock lock(manualSelectionMutex_);
 
         trajFlag = NONE;
+        chosenTraj = Trajectory();
+
+        if (manualResetPending_)
+        {
+            // episode reset (scenarioResetCB): drop the previous episode's choice
+            selectedLeftModelID_ = -1;
+            selectedRightModelID_ = -1;
+            setCurrentTraj(Trajectory());
+            setCurrentLeftGapPtModelID(nullptr);
+            setCurrentRightGapPtModelID(nullptr);
+            manualResetPending_ = false;
+        }
 
         //////// one candidate list per tick: drawn, selected from and recorded ////////
         currentManualCandidates_.clear();
@@ -975,6 +989,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         std::vector<std::pair<float, float>> terminals(gapTrajs.size(), std::make_pair(0.0f, 0.0f));
 
         bool cursorUsable = isCursorUsable();
+        // the cursor that this selection uses, recorded under the same lock
+        fillSampleCursor(sample, cursorUsable);
         const geometry_msgs::Point & rbtPos = rbtPoseInOdomFrame_.pose.position;
         float cursorBearing = std::atan2(cursorPosOdomFrame_.point.y - rbtPos.y, cursorPosOdomFrame_.point.x - rbtPos.x);
 
@@ -1076,6 +1092,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             sample.click_point_odom = trajCreationPointOdomFrame_.point;
             selectedLeftModelID_ = -1;
             selectedRightModelID_ = -1;
+            chosenTraj = getCurrentTraj();
             return -1;
         }
 
@@ -1110,6 +1127,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         setCurrentTraj(selectedTraj);
         trajVisualizer_->drawCurrentTrajectory(selectedTraj);
         trajFlag = GAP;
+        chosenTraj = selectedTraj;
 
         sample.source = sample.SOURCE_GAP_CURSOR;
         sample.selected_idx = selectedIdx;
@@ -1117,6 +1135,18 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         sample.selected_right_model_id = selected.right_model_id;
 
         return selectedIdx;
+    }
+
+    void Planner::fillSampleCursor(manual_gap_msgs::ManualGapSample & sample, const bool & cursorUsable)
+    {
+        if (hasCursorMsg_)
+        {
+            sample.cursor = lastCursorMsg_;
+            sample.cursor_rx_wall = ros::Time(cursorRxWall_.sec, cursorRxWall_.nsec);
+        }
+        sample.cursor_odom = cursorPosOdomFrame_.point;
+        sample.cursor_valid = cursorUsable;
+        sample.cursor_live = cursorUsable && lastCursorMsg_.pick_ok && cursorTfOk_;
     }
 
     void Planner::publishManualSample(manual_gap_msgs::ManualGapSample & sample)
@@ -1142,21 +1172,19 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         sample.odom_stamp = rbtPoseInOdomFrame_.header.stamp;
         sample.robot_pose_odom = rbtPoseInOdomFrame_.pose;
         sample.robot_vel = currentRbtVel_.twist;
-        sample.goal_robot_frame = globalGoalRobotFrame_.pose.position;
+        // goal at this tick's pose (globalGoalRobotFrame_ is only updated with a new plan)
+        geometry_msgs::PoseStamped goalRbtFrame;
+        tf2::doTransform(globalGoalOdomFrame_, goalRbtFrame, odom2rbt_);
+        sample.goal_robot_frame = goalRbtFrame.pose.position;
         geometry_msgs::PoseStamped localWaypointRbtFrame;
         tf2::doTransform(globalPathLocalWaypointOdomFrame_, localWaypointRbtFrame, odom2rbt_);
         sample.local_waypoint_robot_frame = localWaypointRbtFrame.pose.position;
         sample.ungap_would_apply = false;
         sample.idle_would_apply = false;
 
-        if (hasCursorMsg_)
-        {
-            sample.cursor = lastCursorMsg_;
-            sample.cursor_rx_wall = ros::Time(cursorRxWall_.sec, cursorRxWall_.nsec);
-        }
-        sample.cursor_odom = cursorPosOdomFrame_.point;
-        sample.cursor_valid = isCursorUsable();
-        sample.cursor_live = sample.cursor_valid && lastCursorMsg_.pick_ok;
+        // ticks that ended before selection record the cursor now
+        if (sample.status != sample.STATUS_PLANNED)
+            fillSampleCursor(sample, isCursorUsable());
         sample.hold_still = manualHoldStill_;
 
         manualSamplePub_.publish(sample);
@@ -2423,7 +2451,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (manualSelectionMode_)
         {
             // select first, then draw, so the highlight shows this tick's pick
-            int selectedIdx = selectManualTrajectory(trajFlag, gapTubes, gapTrajs, sample);
+            int selectedIdx = selectManualTrajectory(trajFlag, gapTubes, gapTrajs, sample, chosenTraj);
             {
                 boost::mutex::scoped_lock lock(manualSelectionMutex_);
                 publishManualCandidateMarkers(selectedIdx);
@@ -2446,10 +2474,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
                 // no usable cursor or no feasible gap: stand still rather than
                 // drive under obstacle avoidance
                 manualHoldStill_ = true;
-                chosenTraj = Trajectory();
-            } else
-            {
-                chosenTraj = getCurrentTraj();
             }
             // cleanup
             for (Gap * planningGap : planningGaps) delete planningGap;
