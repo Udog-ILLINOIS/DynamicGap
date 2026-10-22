@@ -25,11 +25,11 @@ Planner (`cursorCB`, replaces `rvizPublishPointSubsciberCB` and `/gap_selection_
 - `pick_ok = false` → the last point is kept (a still mouse keeps its selection).
 - Otherwise the point is transformed from the message's own `frame_id` to the odom frame through `tfBuffer_`, at the message stamp, else at the latest transform; if neither exists the last good point is kept, a throttled warning is logged, and the sample marks the cursor as not live until a transform succeeds.
 - If the cursor stamp and planner time differ by more than 2 s, a throttled error says RViz is probably not on sim time (DG-12).
-- The cursor is usable for selection when a point exists, the tool is active, and the last message is less than 0.5 s old in wall time (`isCursorUsable`, `isCursorFresh`). The tool publishes every 0.1 s whatever the mouse does, so this never requires mouse movement; it only catches a tool or RViz that stopped.
+- The cursor is usable for selection when a point exists, the tool is active, however old the last message is (`isCursorUsable`, `isCursorHeld`; issue 40 removed a 0.5 s timeout). The tool publishes every 0.1 s whatever the mouse does, so this never requires mouse movement.
 
 ## Effects
 - Autonomous mode: no change.
-- Manual mode: the cursor follows the screen under a still mouse while the camera follows the robot; switching tools or closing RViz stops the robot within 0.5 s (issue 16).
+- Manual mode: the cursor follows the screen under a still mouse while the camera follows the robot; switching tools stops the robot (issue 16); an RViz that stops publishing keeps the last selection (issue 40).
 - Recorded data / metrics: the sample (issue A/B doc) carries the cursor message verbatim, its receipt time, the odom point used, `cursor_valid` and `cursor_live` (usable and `pick_ok`).
 - Downstream: anything publishing `/gap_selection_point` (`geometry_msgs/PointStamped`) must publish `manual_gap_msgs/CursorState` on `/rto/gap_selection_cursor` instead.
 

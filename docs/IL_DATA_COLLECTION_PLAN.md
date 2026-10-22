@@ -864,6 +864,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-37 | HIGH | Manual mode drove under obstacle-avoidance control in collision | dynamic_gap | Fixed `6d2bfac`, [doc](il_pipeline_fixes/37-manual-never-planner-control.md) |
 | PL-38 | HIGH | Benchmark relaunch dropped IL recording | arena-rosnav | Fixed `c99dd2017`, [doc](il_pipeline_fixes/38-benchmark-relaunch-drops-il-recording.md) |
 | PL-39 | HIGH | Benchmark stages ran the default scenario (per-port config not read) | arena-rosnav | Fixed `7dcb61a57`, [doc](il_pipeline_fixes/39-benchmark-scenario-not-applied.md) |
+| PL-40 | MED | Cursor dropped after 0.5 s without a cursor message | dynamic_gap | Fixed `94b09eb`, [doc](il_pipeline_fixes/40-cursor-held-without-messages.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded

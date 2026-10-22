@@ -10,7 +10,7 @@ In manual mode, when there was no cursor yet, or no feasible gap trajectory, `ge
 The robot moved without operator input, and those ticks looked like operator-driven motion in `cmd_vel`.
 
 ## What changed
-- `manualHoldStill_` is reset at the start of each tick and set in manual mode when the selection yields nothing (no usable cursor — never received, tool inactive, or tool silent for 0.5 s wall time, see issue 29 — no feasible candidate, and no click-to-move) and on the "no gaps" return.
+- `manualHoldStill_` is reset at the start of each tick and set in manual mode when the selection yields nothing (no usable cursor — never received, or tool inactive, see issues 29 and 40 — no feasible candidate, and no click-to-move) and on the "no gaps" return.
 - `ctrlGeneration` returns a zero twist in manual mode when `manualHoldStill_` is set.
 - Not-ready and in-collision ticks were left on obstacle-avoidance control; issue 37 makes them hold still too.
 - A still mouse is never "no cursor": the tool republishes every 0.1 s.
