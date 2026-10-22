@@ -12,15 +12,15 @@ Seen on 2026-10-21: a 50ped_daniel run recorded only the few seconds before the 
 Benchmark suites are the way to get fixed start/goal scenarios (random spawns on cramped maps put the robot into collision), and none of that driving was recorded.
 
 ## What changed
-`_il_record_args(runid, stage_name)` adds `record_il:=true`, `il_data_root`, `il_operator` and `il_session:=<runid>_<stage>` to the relaunch command when the launch being replaced runs `il_session_recorder` (its `data_root` param is set). Each stage records into its own session folder; names are unique per run, so the recorder never refuses a relaunch for an existing folder.
+`_il_record_args(runid, stage_name)` adds `record_il:=true`, `il_data_root`, `il_operator` and `il_session:=<runid>_<stage>` to the relaunch command when the launch being replaced runs `il_session_recorder` (its `data_root` param is set). Each relaunch records into its own session folder; names are unique per run, so the recorder never refuses a relaunch for an existing folder. The benchmark relaunches only when the map changes, so a session covers every following stage on the same map and is named after the first of them (see issue 39).
 
 ## Effects
 - Without `record_il`: no change.
-- With `record_il`: one session folder per stage, named `<contest>_<yy-mm-dd_HH-MM-SS>_<stage>`. A user-given `il_session` names only the short folder of the first launch (before the first relaunch); that folder holds no driving and can be deleted.
+- With `record_il`: one session folder per relaunch (per map), named `<contest>_<yy-mm-dd_HH-MM-SS>_<first stage>`. A user-given `il_session` names only the short folder of the first launch (before the first relaunch); that folder holds no driving and can be deleted.
 - `rviz_prefix` is not passed on to relaunches.
 
 ## Test
-`task_generator/test/test_benchmark_il_record.py`: the recorder's settings are forwarded with a per-stage session name (a plain folder name), and nothing is added when the launch does not record.
+`task_generator/test/test_benchmark_il_record.py`: the recorder's settings are forwarded with a session name from the run and stage (a plain folder name), and nothing is added when the launch does not record.
 
 ```
 cd src/arena/arena-rosnav/task_generator && python3 -m unittest discover -s test -v
