@@ -39,5 +39,29 @@ namespace dynamic_gap
             static bool hasTrajCreationPoint(Planner & planner) { return planner.hasTrajCreationPoint_; }
             static void setTrackingCreatedTraj(Planner & planner, bool value) { planner.isTrackingCreatedTraj_ = value; }
             static bool trackingCreatedTraj(Planner & planner) { return planner.isTrackingCreatedTraj_; }
+
+            static void cursorCB(Planner & planner, const manual_gap_msgs::CursorState::ConstPtr & msg) { planner.cursorCB(msg); }
+            static bool hasCursorPos(Planner & planner) { return planner.hasCursorPos_; }
+            static geometry_msgs::Point cursorOdom(Planner & planner) { return planner.cursorPosOdomFrame_.point; }
+            static bool cursorUsable(Planner & planner) { return planner.isCursorUsable(); }
+            static void setOdomFrame(Planner & planner, const std::string & frame) { planner.cfg_.odom_frame_id = frame; }
+            static void setHasTrajCreationPoint(Planner & planner, bool value) { planner.hasTrajCreationPoint_ = value; }
+            static int episodeId(Planner & planner) { return planner.episodeId_; }
+            static void addGaps(Planner & planner, int count)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    Gap * gap = new Gap("base_link", 10, 1.0f, 20, 1.0f, false);
+                    planner.prevRawGaps_.push_back(gap);
+                    planner.currRawGaps_.push_back(gap);
+                    Gap * simp = new Gap("base_link", 10, 1.0f, 20, 1.0f, false);
+                    planner.prevSimplifiedGaps_.push_back(simp);
+                    planner.currSimplifiedGaps_.push_back(simp);
+                }
+            }
+            static size_t gapCount(Planner & planner) { return planner.currRawGaps_.size() + planner.currSimplifiedGaps_.size() + planner.prevRawGaps_.size() + planner.prevSimplifiedGaps_.size(); }
+            static bool holdStill(Planner & planner) { return planner.manualHoldStill_; }
+            static void setHoldStill(Planner & planner, bool value) { planner.manualHoldStill_ = value; }
+            static void setTrajVisualizer(Planner & planner) { planner.trajVisualizer_ = new TrajectoryVisualizer(planner.nh_, planner.cfg_); }
     };
 }

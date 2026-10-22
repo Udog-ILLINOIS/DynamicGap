@@ -67,6 +67,9 @@
 #include <std_msgs/Int32.h>
 #include <visualization_msgs/MarkerArray.h>
 
+#include <manual_gap_msgs/CursorState.h>
+#include <manual_gap_msgs/ManualGapSample.h>
+
 namespace dynamic_gap
 {
     /**
@@ -152,18 +155,38 @@ namespace dynamic_gap
 
             struct ManualCandidate
             {
-                int display_id;
+                int display_id;  // number shown to the operator; -1 if not shown
                 int traj_flag;   // GAP, UNGAP, IDLING, 
-                int local_idx;
+                int local_idx;   // index into the tick's gap tubes / trajectories
+                int left_model_id;
+                int right_model_id;
+                bool feasible;   // non-empty trajectory
                 geometry_msgs::PoseArray path_odom_frame; // full trajectory path in odom frame
             };
 
             ros::Subscriber manualTrajSelectionSub_;
             ros::Publisher manualCandidateMarkerPub_;
-            ros::Subscriber rvizPublishPointSubsciber_; //for manuel_gap_selection click to point
+            ros::Subscriber cursorSub_; /**< Cursor of the RViz gap selection tool */
             ros::Subscriber trajCreationPointSub_; //for manuel_traj_creation click to point
 
             ros::Subscriber scenarioResetSub_; /**< Subscriber to episode resets of the task generator */
+            ros::Subscriber scenarioResetBeginSub_; /**< Subscriber to the start of episode resets */
+            ros::Publisher manualSamplePub_; /**< Per-tick imitation learning sample (manual mode) */
+
+            manual_gap_msgs::CursorState lastCursorMsg_; /**< Last cursor message, verbatim */
+            ros::WallTime cursorRxWall_; /**< Wall-clock receipt time of lastCursorMsg_ */
+            bool hasCursorMsg_ = false;
+            const double cursorTimeout_ = 0.5; /**< Wall-clock seconds without a cursor message before the tool counts as gone */
+
+            int episodeId_ = -1; /**< Last /scenario_reset id */
+            int resetBeginId_ = -1; /**< Last /scenario_reset_begin id */
+            ros::WallTime lastResetWall_; /**< Wall-clock time of the last /scenario_reset */
+            const double resetWindow_ = 1.0; /**< Wall-clock seconds after a reset flagged in the sample */
+            uint32_t manualTickSeq_ = 0;
+
+            bool manualHoldStill_ = false; /**< Manual mode: command zero velocity this tick */
+            int selectedLeftModelID_ = -1; /**< Identity of the cursor-selected gap */
+            int selectedRightModelID_ = -1;
 
             int selectedManualCandidateId_ = -1;
             bool manualSelectionMode_ = false;
@@ -179,8 +202,17 @@ namespace dynamic_gap
 
             void manualTrajSelectionCB(const std_msgs::Int32::ConstPtr& msg);
 
-            //callback function for RViz publish point subscriber
-            void rvizPublishPointSubsciberCB(const geometry_msgs::PointStamped::ConstPtr& msg);
+            /**
+            * \brief Call back function for the cursor of the RViz gap selection tool
+            * \param msg cursor state
+            */
+            void cursorCB(const manual_gap_msgs::CursorState::ConstPtr& msg);
+
+            /**
+            * \brief Whether the cursor can be used for selection: a point was
+            * received, the tool is active and still publishing
+            */
+            bool isCursorUsable();
 
             void trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg);
 
@@ -189,11 +221,38 @@ namespace dynamic_gap
             * \param msg id of the new episode
             */
             void scenarioResetCB(const std_msgs::Int16::ConstPtr& msg);
+
+            /**
+            * \brief Call back function for the start of episode resets
+            * \param msg id of the episode about to start
+            */
+            void scenarioResetBeginCB(const std_msgs::Int16::ConstPtr& msg);
             bool tryHandleTrajCreationPoint(int & trajFlag);
 
-            void publishManualCandidateMarkers(const std::vector<Trajectory>& gapTrajs,
-                                            const std::vector<Trajectory>& ungapTrajs,
-                                            const std::vector<Trajectory>& idlingTrajs);
+            /**
+            * \brief Draw the candidate numbers, highlighting the selected candidate
+            * \param selectedIdx index into currentManualCandidates_ of the selection, -1 if none
+            */
+            void publishManualCandidateMarkers(const int & selectedIdx);
+
+            /**
+            * \brief Manual mode: build the tick's candidate list, select from the
+            * cursor (or click-to-move) and record both in the sample
+            * \param trajFlag GAP if a trajectory was selected, NONE otherwise
+            * \param gapTubes gap tubes of this tick
+            * \param gapTrajs trajectory per gap tube (empty if infeasible)
+            * \param sample per-tick sample to fill
+            * \return index into currentManualCandidates_ of the selection, -1 if none
+            */
+            int selectManualTrajectory(int & trajFlag,
+                                       const std::vector<GapTube *> & gapTubes,
+                                       const std::vector<Trajectory> & gapTrajs,
+                                       manual_gap_msgs::ManualGapSample & sample);
+
+            /**
+            * \brief Fill the per-tick fields of the sample and publish it
+            */
+            void publishManualSample(manual_gap_msgs::ManualGapSample & sample);
 
             bool getHumanSelectedTrajectory(int& trajFlag,
                                             int& lowestCostTrajIdx,
@@ -201,11 +260,6 @@ namespace dynamic_gap
                                             const std::vector<Trajectory>& ungapTrajs,
                                             const std::vector<Trajectory>& idlingTrajs);
             
-            bool getCursorSelectedTrajectory(int& trajFlag,
-                                  int& lowestCostTrajIdx,
-                                  const std::vector<Trajectory>& gapTrajs,
-                                  const std::vector<Trajectory>& ungapTrajs,
-                                  const std::vector<Trajectory>& idlingTrajs);
 
             void attachUngapIDs(const std::vector<Gap *> & planningGaps,
                                         std::vector<Ungap *> & ungaps);
@@ -429,9 +483,10 @@ namespace dynamic_gap
 
             /**
             * \brief Function for deep copying simplified gaps
+            * \param scanCopy if given, receives a copy of the scan the gaps were computed from
             * \return Deep copied simplified gaps
             */
-            std::vector<Gap *> deepCopyCurrentSimplifiedGaps();
+            std::vector<Gap *> deepCopyCurrentSimplifiedGaps(sensor_msgs::LaserScan * scanCopy = nullptr);
 
             /**
             * \brief Function for deep copying raw gaps

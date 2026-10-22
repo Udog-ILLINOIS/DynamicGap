@@ -2,9 +2,17 @@
 
 #include <xmlrpcpp/XmlRpcValue.h>
 
+#include <geometry_msgs/Point.h>
+#include <geometry_msgs/PoseArray.h>
+
 #include <algorithm>
+#include <functional>
 #include <cctype>
+#include <cmath>
+#include <limits>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace dynamic_gap
 {
@@ -67,4 +75,111 @@ namespace dynamic_gap
     {
         return distToTarget < tolerance || trackingTime > 2.0 * estimatedTime;
     }
+
+    /**
+    * \brief Runs a callable when the scope ends (used to publish the per-tick
+    * sample on every return path of the planning loop)
+    */
+    template <typename F>
+    class ScopeExit
+    {
+        public:
+            explicit ScopeExit(F f) : f_(std::move(f)) {}
+            ~ScopeExit() { f_(); }
+            ScopeExit(const ScopeExit &) = delete;
+            ScopeExit & operator=(const ScopeExit &) = delete;
+        private:
+            F f_;
+    };
+
+    /**
+    * \brief Numbers shown to the operator: 0, 1, 2, ... over the shown
+    * candidates, -1 for the others
+    * \param shown per candidate, whether it is drawn as selectable
+    * \return display id per candidate
+    */
+    inline std::vector<int> denseDisplayIds(const std::vector<bool> & shown)
+    {
+        std::vector<int> ids(shown.size(), -1);
+        int next = 0;
+        for (size_t i = 0; i < shown.size(); i++)
+        {
+            if (shown[i])
+                ids[i] = next++;
+        }
+        return ids;
+    }
+
+    /**
+    * \brief Candidate whose terminal point is nearest the cursor
+    * \param terminals terminal point per candidate (x, y)
+    * \param feasible per candidate, whether it can be selected
+    * \param cursorX cursor x, same frame as terminals
+    * \param cursorY cursor y, same frame as terminals
+    * \return index of the nearest feasible candidate, -1 if none; ties go to the lower index
+    */
+    inline int nearestCandidate(const std::vector<std::pair<float, float>> & terminals,
+                                const std::vector<bool> & feasible,
+                                const float & cursorX,
+                                const float & cursorY)
+    {
+        int nearest = -1;
+        float minDist = std::numeric_limits<float>::infinity();
+        for (size_t i = 0; i < terminals.size() && i < feasible.size(); i++)
+        {
+            if (!feasible[i])
+                continue;
+
+            float dist = std::hypot(terminals[i].first - cursorX, terminals[i].second - cursorY);
+            if (dist < minDist)
+            {
+                minDist = dist;
+                nearest = i;
+            }
+        }
+        return nearest;
+    }
+
+    /**
+    * \brief Whether the cursor tool is still talking to the planner. The tool
+    * publishes at a fixed wall-clock rate whether or not the mouse moves, so
+    * this never depends on mouse movement.
+    * \param toolActive tool_active of the last cursor message
+    * \param secondsSinceReceipt wall-clock age of the last cursor message
+    * \param timeout maximum age in seconds
+    */
+    inline bool isCursorFresh(const bool & toolActive, const double & secondsSinceReceipt, const double & timeout)
+    {
+        return toolActive && secondsSinceReceipt >= 0.0 && secondsSinceReceipt < timeout;
+    }
+
+    /**
+    * \brief Whether a tick is close to an episode reset
+    * \param resetBeginId id of the last /scenario_reset_begin (-1 if none)
+    * \param episodeId id of the last /scenario_reset (-1 if none)
+    * \param secondsSinceReset wall-clock time since the last /scenario_reset (negative if none)
+    * \param window seconds after a reset that still count
+    */
+    inline bool isInResetWindow(const int & resetBeginId, const int & episodeId,
+                                const double & secondsSinceReset, const double & window)
+    {
+        if (resetBeginId > episodeId)
+            return true;  // a reset is in progress
+        return secondsSinceReset >= 0.0 && secondsSinceReset < window;
+    }
+
+    /**
+    * \brief Every step-th point of a path, always including the last one
+    */
+    inline std::vector<geometry_msgs::Point> downsamplePath(const geometry_msgs::PoseArray & path, const int & step)
+    {
+        std::vector<geometry_msgs::Point> points;
+        const int n = path.poses.size();
+        for (int i = 0; i < n; i += std::max(step, 1))
+            points.push_back(path.poses[i].position);
+        if (n > 0 && (n - 1) % std::max(step, 1) != 0)
+            points.push_back(path.poses[n - 1].position);
+        return points;
+    }
 }
+
