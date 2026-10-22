@@ -405,6 +405,9 @@ namespace dynamic_gap
             geometry_msgs::PoseStamped globalPathLocalWaypointOdomFrame = globalPlanManager_->getGlobalPathLocalWaypointOdomFrame(rbt2odom_);
             goalVisualizer_->drawGlobalPathLocalWaypoint(globalPathLocalWaypointOdomFrame);
             goalVisualizer_->drawGlobalGoal(globalGoalOdomFrame_);
+            // manual mode: shows the operator where to head
+            if (manualSelectionMode_)
+                goalVisualizer_->drawGoalArrow(rbtPoseInOdomFrame_, globalGoalOdomFrame_);
             trajEvaluator_->transformGlobalPathLocalWaypointToRbtFrame(globalPathLocalWaypointOdomFrame, odom2rbt_);
             
         }
