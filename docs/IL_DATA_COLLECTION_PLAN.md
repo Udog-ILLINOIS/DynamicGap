@@ -867,6 +867,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-40 | MED | Cursor dropped after 0.5 s without a cursor message | dynamic_gap | Fixed `94b09eb`, [doc](il_pipeline_fixes/40-cursor-held-without-messages.md) |
 | PL-41 | MED | Pedestrian speed not settable at launch; pedsim steps in wall time (open) | arena-rosnav | Fixed `5605de45b` (argument), [doc](il_pipeline_fixes/41-pedestrian-speed-argument.md) |
 | PL-42 | LOW | No robot-to-goal cue for the operator (line only in an uncommitted stash) | dynamic_gap | Fixed `ac447be`, [doc](il_pipeline_fixes/42-goal-line.md) |
+| PL-43 | HIGH | Selected gap switches too often (close calls flip back and forth); gaps pointing away from the cursor get selected | dynamic_gap, arena-rosnav | Fixed `3c2ef1c`, arena-rosnav `2b1ecdea2` (arguments), [doc](il_pipeline_fixes/43-directional-sticky-selection.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
