@@ -1,6 +1,6 @@
 # 22 — Reset begin signal
 
-**Status:** Fixed · **Repo(s):** arena-rosnav · **Files:** `task_generator/task_generator/task_generator_node.py`, `task_generator/test/test_reset_begin_signal.py`
+**Status:** Fixed · **Repo(s):** arena-rosnav · **Files:** `task_generator/task_generator/task_generator_node.py`, `task_generator/test/test_reset_begin_signal.py`, `task_generator/test/test_reset_lock.py`
 **Behaviour change:** None for existing consumers. One new latched topic, `/scenario_reset_begin`.
 
 ## Problem
@@ -25,9 +25,9 @@ Why latched: `/scenario_reset` is latched so that late subscribers learn the cur
 - Recorded data / metrics: nothing records the topic yet. The recorder and metrics are unchanged. Frames between `begin N` and `scenario_reset N` belong to neither episode and can be dropped by downstream tools.
 - Downstream: the IL rosbag launch (issue 07) records `/scenario_reset_begin`. New consumers must use the id comparison above.
 
-## Known limitation
+## Follow-up: one reset at a time
 
-`reset_task()` has no lock. If the `/reset_task` service is called while a timer-driven reset is running, both calls publish the same begin id, and the second `/scenario_reset` carries an id with no matching begin. Nothing in the workspace calls `/reset_task` today. Wrapping `reset_task()` in a lock would remove this.
+`reset_task()` had no lock: a `/reset_task` service call during a timer-driven reset published the same begin id twice. `TaskGenerator` now holds `_reset_lock` (a `threading.RLock`) for the whole of `reset_task()`. `_check_task_status` (the 0.5 s status timer) takes the lock without waiting and skips its tick if a reset is running, so it cannot start a second reset right after the first. A service call during a reset waits and then runs its own reset with the next id. Test: `task_generator/test/test_reset_lock.py` (the lock is held during the reset; a status tick during a reset is skipped; two concurrent resets publish ids 0 and 1).
 
 ## Test
 `src/arena/arena-rosnav/task_generator/test/test_reset_begin_signal.py` loads `task_generator_node.py` with stubbed ROS and `task_generator` imports (it reuses the loader of `test_double_resume.py`). It asserts that:
