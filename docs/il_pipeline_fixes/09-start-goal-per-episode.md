@@ -12,8 +12,8 @@
 ## What changed
 `data_recorder_node`:
 - New `write_start_goal()` writes `[episode, start, goal]` and sets `start_goal_written`.
-- `episode_callback` calls it after it stores the new episode id. The task generator sets `start` and `goal` in `RobotManager.reset` before it publishes `/scenario_reset`, so the row holds the new episode's values.
-- `clock_callback` calls it once, on the first recorded tick, for the case where no `/scenario_reset` has arrived yet. A later `/scenario_reset` for the same episode writes a newer row.
+- `Recorder.scenario_reset_callback` calls it after it stores the new episode id. The task generator sets `start` and `goal` in `RobotManager.reset` before it publishes `/scenario_reset`, so the row holds the new episode's values.
+- `Recorder._record` (run by `clock_callback`) calls it once, on the first recorded tick, for the case where no `/scenario_reset` has arrived yet. A later `/scenario_reset` for the same episode writes a newer row.
 
 `metrics.py`, `metrics_static.py`:
 - `start_goal.csv` is loaded on its own (`_load_start_goal`).
