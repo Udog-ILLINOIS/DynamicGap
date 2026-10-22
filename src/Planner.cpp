@@ -2276,7 +2276,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             chosenTraj = Trajectory();
             trajFlag = NONE;
             sample.status = sample.STATUS_NOT_READY;
-            return;            
+            manualHoldStill_ = manualSelectionMode_;
+            return;
         }
 
         if (colliding_)
@@ -2285,6 +2286,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             chosenTraj = Trajectory();
             trajFlag = NONE;
             sample.status = sample.STATUS_COLLIDING;
+            // manual mode: no obstacle avoidance control, stand still
+            manualHoldStill_ = manualSelectionMode_;
             return;
         }
 
@@ -2757,8 +2760,9 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             if (!haveTFs_)
                 return cmdVel;
 
-            // manual mode with nothing selected (see runPlanningLoop)
-            if (manualSelectionMode_ && manualHoldStill_)
+            // manual mode: only the operator's selection (cursor gap or click-to-move,
+            // both GAP) moves the robot; the planner's own control laws never run
+            if (manualSelectionMode_ && (manualHoldStill_ || trajFlag != GAP || localTrajectory.poses.empty()))
             {
                 ROS_INFO_STREAM_NAMED("Planner", "manual mode, nothing selected: holding still.");
                 timeKeeper_->stopTimer(CONTROL);

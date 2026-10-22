@@ -178,6 +178,58 @@ TEST_F(ManualPlannerTest, HoldStillGivesZeroVelocity)
     EXPECT_EQ(0.0, cmd.angular.z);
 }
 
+// Fix 37: in collision the manual planner holds still instead of planning nothing
+TEST_F(ManualPlannerTest, CollidingHoldsStill)
+{
+    PlannerTestAccess::setInitialized(planner_, true);
+    PlannerTestAccess::setHasLaserScan(planner_, true);
+    PlannerTestAccess::setHasGlobalGoal(planner_, true);
+    PlannerTestAccess::setColliding(planner_, true);
+
+    Trajectory chosenTraj;
+    int trajFlag = dynamic_gap::GAP;
+    planner_.runPlanningLoop(chosenTraj, trajFlag);
+
+    EXPECT_EQ(dynamic_gap::NONE, trajFlag);
+    EXPECT_TRUE(PlannerTestAccess::holdStill(planner_));
+}
+
+TEST_F(ManualPlannerTest, NotReadyHoldsStill)
+{
+    Trajectory chosenTraj;
+    int trajFlag = dynamic_gap::GAP;
+    planner_.runPlanningLoop(chosenTraj, trajFlag);
+
+    EXPECT_EQ(dynamic_gap::NONE, trajFlag);
+    EXPECT_TRUE(PlannerTestAccess::holdStill(planner_));
+}
+
+// Fix 37: without a selection the controller never falls back to obstacle
+// avoidance or idling (no trajectory controller is set here, so running one
+// would crash)
+TEST_F(ManualPlannerTest, NoSelectionNeverRunsPlannerControl)
+{
+    PlannerTestAccess::setHoldStill(planner_, false);
+
+    geometry_msgs::PoseArray path;
+    path.poses.resize(3);
+
+    for (int flag : {dynamic_gap::NONE, dynamic_gap::IDLING, dynamic_gap::UNGAP})
+    {
+        int trajFlag = flag;
+        geometry_msgs::Twist cmd = planner_.ctrlGeneration(path, trajFlag);
+        EXPECT_EQ(0.0, cmd.linear.x) << "trajFlag " << flag;
+        EXPECT_EQ(0.0, cmd.linear.y) << "trajFlag " << flag;
+        EXPECT_EQ(0.0, cmd.angular.z) << "trajFlag " << flag;
+    }
+
+    // a selected gap whose trajectory is empty
+    int trajFlag = dynamic_gap::GAP;
+    geometry_msgs::Twist cmd = planner_.ctrlGeneration(geometry_msgs::PoseArray(), trajFlag);
+    EXPECT_EQ(0.0, cmd.linear.x);
+    EXPECT_EQ(0.0, cmd.angular.z);
+}
+
 // Reset: gaps of the old scene and click-to-move state are dropped (manual mode)
 TEST_F(ManualPlannerTest, ResetClearsManualState)
 {
