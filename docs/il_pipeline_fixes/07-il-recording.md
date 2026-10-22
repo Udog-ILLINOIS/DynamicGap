@@ -13,10 +13,10 @@ No imitation learning sample could be rebuilt from any run.
 
 ## What changed
 `record_il.launch` starts `il_session_recorder`, which for one session:
-- refuses to start if `data_root` is unset, not absolute, or inside one of the workspace's git repos, or if the session folder exists and is not empty;
+- refuses to start if `data_root` is unset, not absolute, or inside one of the workspace's git repos (including a repo that encloses another, such as arena-rosnav around arena_bringup), if `session` is not a plain folder name, or if the session folder exists and is not empty. The node is `required`, so a refused start stops the whole launch instead of running unrecorded;
 - creates `<data_root>/il_gap_selection/<session>/` (`session` empty → date and time);
 - writes `params.yaml` (every rosparam at start), `versions.yaml` (commit, branch, dirty flag of the repos of dynamic_gap, manual_gap_msgs, rviz_plugins, arena_bringup, task_generator, arena_evaluation, arena_simulation_setup) and `versions/<repo>.diff` (uncommitted changes), copies the RViz config to `view.rviz`, and starts `notes.txt` (operator, instruction, start and stop time);
-- runs `rosbag record --lz4 --split --size=<split_size_mb> --repeat-latched -O session.bag <topics>` in that folder (bags `session_0.bag`, `session_1.bag`, ...), and stops it with SIGINT on shutdown so the last bag is closed;
+- runs `rosbag record --lz4 --split --size=<split_size_mb> --repeat-latched -O session.bag <topics>` in that folder (bags `session_0.bag`, `session_1.bag`, ...) and stops it with SIGINT on shutdown (waiting up to 10 s, inside roslaunch's 15 s) so the last bag is closed. SIGHUP (closed terminal) and SIGTERM also run the shutdown, and rosbag gets SIGINT from the kernel if the recorder dies (`PR_SET_PDEATHSIG`), so it never keeps running orphaned;
 - appends one row to `episodes.csv` for each `/scenario_reset_begin` and `/scenario_reset` (wall and sim time, `start` and `goal` params);
 - checks free disk space every 30 s: warning below `min_free_gb`, error below a fifth of it, error if rosbag exited.
 
@@ -34,7 +34,7 @@ Episode outcome (R-13): the task generator publishes no outcome. The offline che
 - Downstream: `il_tools/il_check_session` and `il_tools/il_build_dataset` read the session folders.
 
 ## Test
-`arena_bringup/test/test_il_session_recorder.py`: topic list (namespaced, no markers, no duplicates), rosbag options and that this rosbag supports them, session naming, `data_root` checks, and that `record_il.launch` has no default for `data_root`. End to end: a manual-mode sim run with `record_il:=true` and a fake cursor, then `il_check_session` on the recorded session (see the offline tools doc).
+`arena_bringup/test/test_il_session_recorder.py`: topic list (namespaced, no markers, no duplicates), rosbag options and that this rosbag supports them, session naming and plain-name check, `data_root` checks, and that `record_il.launch` has no default for `data_root` and marks the recorder required. The parent-death signal was checked by killing a parent with `kill -9` (the child exited). End to end: a manual-mode sim run with `record_il:=true` and a fake cursor, then `il_check_session` on the recorded session (see the offline tools doc).
 
 ```
 cd src/arena/arena-rosnav/arena_bringup && python3 -m unittest discover -s test -p "test_il_session_recorder.py" -v

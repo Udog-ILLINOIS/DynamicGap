@@ -27,6 +27,7 @@ COLLISION_EPS = 0.01  # m, as arena_evaluation metrics
 
 SOURCE_NONE, SOURCE_GAP_CURSOR, SOURCE_CLICK_TO_MOVE, SOURCE_MODEL = 0, 1, 2, 3
 STATUS_PLANNED = 0
+CURSOR_FRESH_S = 0.5  # wall s; the planner's cursor timeout
 
 
 def bag_files(session_dir):
@@ -146,12 +147,33 @@ def robot_radius(params, samples):
     return ROBOT_RADIUS
 
 
-def episode_outcomes(samples, params):
-    """Outcome per episode id from the samples: GOAL_REACHED if the last pose
-    is within the goal radius (plus the distance covered in one goal check),
-    TIMEOUT if the episode lasted the task timeout, else ABORTED; collision
-    if the scan came within the robot radius."""
+def episode_spans(events):
+    """{episode: (start, end)} in sim time from episodes.csv: from the
+    episode's scenario_reset to the next scenario_reset_begin (end None while
+    the episode was still running when recording stopped)."""
+    spans, current = {}, None
+    for e in events:
+        try:
+            episode, sim_time = int(e["episode"]), float(e["sim_time"])
+        except (KeyError, ValueError):
+            continue
+        if e.get("event") == "reset":
+            spans[episode] = (sim_time, None)
+            current = episode
+        elif e.get("event") == "begin" and current is not None and spans[current][1] is None:
+            spans[current] = (spans[current][0], sim_time)
+    return spans
+
+
+def episode_outcomes(samples, params, events=None):
+    """Outcome per episode id: GOAL_REACHED if the last pose is within the
+    goal radius (plus the distance covered in one goal check), TIMEOUT if the
+    episode lasted the task timeout, else ABORTED; collision if the scan came
+    within the robot radius. The duration comes from episodes.csv when it has
+    the episode (the planner can stop ticking before the episode ends), else
+    from the samples."""
     settings = task_settings(params)
+    spans = episode_spans(events or [])
     radius = robot_radius(params, samples)
     episodes = {}
     for s in samples:
@@ -165,7 +187,11 @@ def episode_outcomes(samples, params):
         goal = last.goal_robot_frame
         speed = math.hypot(last.robot_vel.linear.x, last.robot_vel.linear.y)
         distance = math.hypot(goal.x, goal.y)
-        duration = stamp(last.header.stamp) - stamp(first.header.stamp)
+        span = spans.get(episode)
+        if span and span[1] is not None:
+            duration = span[1] - span[0]
+        else:
+            duration = stamp(last.header.stamp) - stamp(first.header.stamp)
         min_range = min((min(s.scan.ranges) for s in ticks if s.scan.ranges), default=math.inf)
         if distance < settings["goal_radius"] + speed * GOAL_CHECK_PERIOD:
             result = "GOAL_REACHED"
@@ -220,9 +246,12 @@ def check_session(session_dir, namespace=None, samples=None):
           "{} of {} cursor ticks differ{}".format(len(mismatched), len(cursor_ticks),
                                                    " e.g. tick {}".format(mismatched[:3]) if mismatched else ""))
 
-    # one clock: cursor stamps (RViz) and sample stamps (planner) agree
+    # one clock: cursor stamps (RViz) and sample stamps (planner) agree; only
+    # ticks whose cursor message is fresh (the tool may have been switched off)
     off_clock = [s.tick_seq for s in samples
-                 if s.cursor.header.stamp.secs and abs(stamp(s.cursor.header.stamp) - stamp(s.header.stamp)) > 5.0]
+                 if s.cursor.header.stamp.secs and s.cursor_rx_wall.secs
+                 and stamp(s.wall_stamp) - stamp(s.cursor_rx_wall) < CURSOR_FRESH_S
+                 and abs(stamp(s.cursor.header.stamp) - stamp(s.header.stamp)) > 5.0]
     backwards = [cur.tick_seq for prev, cur in zip(samples, samples[1:])
                  if cur.tick_seq == prev.tick_seq + 1 and stamp(cur.header.stamp) < stamp(prev.header.stamp)
                  and cur.episode_id == prev.episode_id]
@@ -230,8 +259,9 @@ def check_session(session_dir, namespace=None, samples=None):
           "{} tick(s) with cursor clock off by > 5 s, {} backwards stamp(s) within an episode".format(len(off_clock), len(backwards)))
 
     # every episode has an outcome
-    outcomes = episode_outcomes(samples, params)
     events = load_episode_events(session_dir)
+    check("episodes.csv present", events, "{} event(s)".format(len(events)))
+    outcomes = episode_outcomes(samples, params, events)
     started = sorted({int(e["episode"]) for e in events if e.get("event") == "reset"})
     missing = [e for e in started if e not in outcomes]
     # the last episode may still be running when recording stops

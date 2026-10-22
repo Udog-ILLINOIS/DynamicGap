@@ -26,7 +26,7 @@ def main():
     for session in args.sessions:
         samples = il_bags.load_samples(session, args.namespace)
         checks, report = il_bags.check_session(session, args.namespace, samples)
-        outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(session))
+        outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(session), il_bags.load_episode_events(session))
         print("== " + session)
         for name, passed, detail in checks:
             ok &= passed

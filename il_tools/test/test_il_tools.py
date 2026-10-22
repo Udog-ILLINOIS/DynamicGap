@@ -53,6 +53,7 @@ def sample(seq, t, episode, cursor=(3.0, 0.0), gaps=((1, 2, (3.0, 1.0)), (3, 4, 
     s.cursor.tool_active = True
     s.cursor.pick_ok = live
     s.cursor.last_move_wall = rospy.Time.from_sec(1000.0 + t)
+    s.cursor_rx_wall = rospy.Time.from_sec(1000.0 + t)
     s.cursor_odom.x, s.cursor_odom.y = cursor
     s.cursor_valid = True
     s.cursor_live = live
@@ -131,6 +132,34 @@ class CheckTest(SessionTestCase):
         samples[7].cursor.header.stamp = rospy.Time.from_sec(1.7e9)  # wall clock stamp
         self.write(samples)
         self.assertFalse(self.checks()[0]["one clock"])
+
+    def test_tool_switched_off_is_not_a_clock_error(self):
+        samples = self.good_samples()
+        # tool deactivated at tick 5: later samples carry its last message
+        for s in samples[5:]:
+            s.cursor = samples[4].cursor
+            s.cursor_rx_wall = samples[4].cursor_rx_wall
+            s.cursor_valid = s.cursor_live = False
+            s.source, s.selected_idx = s.SOURCE_NONE, -1
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["one clock"])
+
+    def test_missing_episodes_csv_fails(self):
+        os.remove(os.path.join(self.dir, "episodes.csv"))
+        self.write(self.good_samples())
+        self.assertFalse(self.checks()[0]["episodes.csv present"])
+
+    def test_outcome_duration_from_episodes_csv(self):
+        # the planner stopped ticking at 1.9 s, but the episode ran 60 s until the next begin
+        with open(os.path.join(self.dir, "episodes.csv"), "w") as f:
+            f.write("event,episode,wall_time,sim_time,start,goal\n"
+                    "reset,0,0,0.0,,\nbegin,1,0,60.5,,\nreset,1,0,61.0,,\n")
+        outcomes = il_bags.episode_outcomes(self.good_samples(), il_bags.load_params(self.dir),
+                                            il_bags.load_episode_events(self.dir))
+        self.assertEqual(outcomes[0]["result"], "TIMEOUT")
+        self.assertEqual(outcomes[0]["duration"], 60.5)
+        # episode 1 is still running when recording stops: duration from samples
+        self.assertEqual(outcomes[1]["result"], "GOAL_REACHED")
 
     def test_active_bag_detected(self):
         self.write(self.good_samples())
@@ -211,6 +240,34 @@ class DatasetTest(SessionTestCase):
         shutil.rmtree(os.path.join(self.dir, "out"))
         _, counts = self.build(drop_collision_episodes=False)
         self.assertEqual(counts["kept"], 40)
+
+    def test_observation_in_reset_window_or_not_planned_dropped(self):
+        samples = self.good_samples()
+        samples[7].in_reset_window = True  # obs of tick 10 at lag 0.25
+        samples[8].status = samples[8].STATUS_COLLIDING  # obs of tick 11
+        self.write(samples)
+        _, counts = self.build(lag_s=0.25)
+        self.assertEqual(counts["obs_invalid"], 2)
+
+    def test_stale_observation_dropped(self):
+        samples = self.good_samples()
+        # a 3 s hole in the samples of episode 0 after tick 9
+        for s in samples[10:20]:
+            s.wall_stamp = rospy.Time.from_sec(il_bags.stamp(s.wall_stamp) + 3.0)
+        self.write(samples)
+        _, counts = self.build(lag_s=0.25)
+        # ticks 10-12 would pair with tick 9, 3 s too old
+        self.assertEqual(counts["obs_too_old"], 3)
+
+    def test_same_observation_and_label_kept_once(self):
+        samples = self.good_samples()
+        # tick 6 missing: ticks 8 and 9 (lag 0.25 -> obs 5.5, 6.5) would both pair with tick 5
+        del samples[6]
+        for s in samples[6:]:
+            s.tick_seq -= 1
+        self.write(samples)
+        _, counts = self.build(lag_s=0.25, max_lag_error_s=1.0)
+        self.assertEqual(counts["duplicate"], 1)
 
     def test_split_is_by_episode_and_deterministic(self):
         splits = {"train": 0.5, "val": 0.5}

@@ -23,6 +23,7 @@ DEFAULTS = {
     "max_cursor_dist": math.inf,  # m, cursor to the selected terminal pose
     "max_bearing_diff": math.inf, # rad, |bearing(cursor) - bearing(terminal)|
     "min_tie_margin": 0.0,       # m, second-nearest minus nearest cursor distance
+    "max_lag_error_s": 0.25,     # wall s, observation tick at most this much older than t - lag
     "drop_collision_episodes": True,
     "splits": {"train": 0.8, "val": 0.1, "test": 0.1},
     "seed": "il_gap_selection",
@@ -63,6 +64,11 @@ def observation_tick(ticks, index, lag_s):
     return None
 
 
+def is_valid_observation(tick):
+    """A planned tick outside a reset (the planner's own reliability flags)."""
+    return tick.status == il_bags.STATUS_PLANNED and not tick.in_reset_window
+
+
 def candidate_features(c):
     return {
         "traj_idx": c.traj_idx,
@@ -98,13 +104,14 @@ def example(session, obs, label_tick, label_idx):
 
 def build_examples(session, samples, outcomes, opts):
     """Examples of one session and the counts of what was dropped."""
-    counts = {"usable": 0, "threshold": 0, "collision_episode": 0, "no_obs_tick": 0, "identity_lost": 0, "kept": 0}
+    counts = {"usable": 0, "threshold": 0, "collision_episode": 0, "no_obs_tick": 0, "obs_too_old": 0,
+              "obs_invalid": 0, "identity_lost": 0, "duplicate": 0, "kept": 0}
     by_episode = {}
     for s in samples:
         if s.episode_id >= 0:
             by_episode.setdefault(s.episode_id, []).append(s)
 
-    examples = []
+    examples, seen = [], set()
     for episode, ticks in sorted(by_episode.items()):
         collided = outcomes.get(episode, {}).get("collision", False)
         for i, tick in enumerate(ticks):
@@ -122,11 +129,25 @@ def build_examples(session, samples, outcomes, opts):
                 counts["no_obs_tick"] += 1
                 continue
             obs = ticks[j]
+            # after a gap in the samples the latest earlier tick can be far older than the lag
+            lag_error = il_bags.stamp(tick.wall_stamp) - opts["lag_s"] - il_bags.stamp(obs.wall_stamp)
+            if lag_error > opts["max_lag_error_s"]:
+                counts["obs_too_old"] += 1
+                continue
+            if not is_valid_observation(obs):
+                counts["obs_invalid"] += 1
+                continue
             target = il_bags.selected_identity(tick)
             matches = [k for k, c in enumerate(obs.candidates) if c.feasible and il_bags.identity(c) == target]
             if not matches:
                 counts["identity_lost"] += 1
                 continue
+            # two label ticks can map to the same observation and label
+            key = (obs.tick_seq, matches[0])
+            if key in seen:
+                counts["duplicate"] += 1
+                continue
+            seen.add(key)
             ex = example(session, obs, tick, matches[0])
             ex["collision_episode"] = collided
             examples.append(ex)
@@ -144,7 +165,8 @@ def build_dataset(session_dirs, out_dir, opts=None, namespace=None):
         for session_dir in session_dirs:
             session = os.path.basename(os.path.normpath(session_dir))
             samples = il_bags.load_samples(session_dir, namespace)
-            outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(session_dir))
+            outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(session_dir),
+                                                il_bags.load_episode_events(session_dir))
             examples, counts = build_examples(session, samples, outcomes, opts)
             episodes_per_split = {}
             for ex in examples:

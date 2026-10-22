@@ -899,6 +899,7 @@ safety-checks-on condition, which GRU) are open; see the design doc.
 | The effective controller rate is 10 Hz (`move_base_params.yaml`), not dgap's 5 Hz | PL-15 work | Documented in PL-15; system map corrected |
 | `time_in_personal_space` and the gaze totals in `PedsimMetrics` are cast to integers, truncating seconds | metrics review | Open |
 | `arena_bringup` is a git repo nested in arena-rosnav (both track its files); `versions.yaml` records both | PL-07 work | Noted |
+| In a manual sim run (fake cursor), mbf stopped calling the planner 22 s before the episode's timeout, 2.9 m from the goal; `NavfnROS/plan` had published only empty plans since the episode began. mbf output is not captured (robot nodes are started by the task generator), so the abort reason is unknown. The episode outcome is still right (duration from `episodes.csv`), but such episodes have a stretch without samples | e2e2 session, review of PL-07 | Open (investigate: capture mbf logs) |
 
 # Unfiled / new issues
 
