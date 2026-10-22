@@ -29,13 +29,11 @@ TEST(ManualSelectionHelpers, NearestFeasibleCandidate)
     EXPECT_EQ(0, dynamic_gap::nearestCandidate({{1.0f, 0.0f}, {-1.0f, 0.0f}}, {true, true}, 0.0f, 0.0f));
 }
 
-TEST(ManualSelectionHelpers, CursorFreshnessIgnoresMouseMovement)
+TEST(ManualSelectionHelpers, CursorHeldWithoutNewMessages)
 {
-    // the tool republishes at 10 Hz whether or not the mouse moves; only the
-    // receipt age and the active flag count
-    EXPECT_TRUE(dynamic_gap::isCursorFresh(true, 0.1, 0.5));
-    EXPECT_FALSE(dynamic_gap::isCursorFresh(true, 0.6, 0.5));
-    EXPECT_FALSE(dynamic_gap::isCursorFresh(false, 0.1, 0.5));
+    // the last known position stays valid; only switching the tool off ends it
+    EXPECT_TRUE(dynamic_gap::isCursorHeld(true));
+    EXPECT_FALSE(dynamic_gap::isCursorHeld(false));
 }
 
 TEST(ManualSelectionHelpers, ResetWindow)
@@ -369,6 +367,26 @@ TEST_F(ManualPlannerTest, ResetIsAppliedAtTheNextTick)
     int trajFlag = dynamic_gap::NONE;
     PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
     EXPECT_TRUE(PlannerTestAccess::currentTraj(planner_).getPathOdomFrame().poses.empty());
+}
+
+TEST_F(ManualPlannerTest, OldCursorStillSelects)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+    PlannerTestAccess::cursorCB(planner_, cursor(true, true, 4.0, 1.0));
+    // no cursor message for a minute (RViz stopped publishing)
+    PlannerTestAccess::setCursorRxWall(planner_, ros::WallTime::now() - ros::WallDuration(60.0));
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, -1.0));
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
+    // the last known position is still the operator's selection
+    EXPECT_EQ(0, sample.selected_idx);
+    EXPECT_EQ(dynamic_gap::GAP, trajFlag);
+    EXPECT_TRUE(sample.cursor_valid);
+    EXPECT_TRUE(sample.cursor_live);
 }
 
 TEST_F(ManualPlannerTest, FailedTransformIsNotLive)

@@ -177,7 +177,6 @@ namespace dynamic_gap
             ros::WallTime cursorRxWall_; /**< Wall-clock receipt time of lastCursorMsg_ */
             bool hasCursorMsg_ = false;
             bool cursorTfOk_ = false; /**< The last picked cursor point could be transformed to odom */
-            const double cursorTimeout_ = 0.5; /**< Wall-clock seconds without a cursor message before the tool counts as gone */
 
             int episodeId_ = -1; /**< Last /scenario_reset id */
             int resetBeginId_ = -1; /**< Last /scenario_reset_begin id */

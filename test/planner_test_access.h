@@ -41,6 +41,7 @@ namespace dynamic_gap
             static bool trackingCreatedTraj(Planner & planner) { return planner.isTrackingCreatedTraj_; }
 
             static void cursorCB(Planner & planner, const manual_gap_msgs::CursorState::ConstPtr & msg) { planner.cursorCB(msg); }
+            static void setCursorRxWall(Planner & planner, const ros::WallTime & t) { planner.cursorRxWall_ = t; }
             static bool hasCursorPos(Planner & planner) { return planner.hasCursorPos_; }
             static geometry_msgs::Point cursorOdom(Planner & planner) { return planner.cursorPosOdomFrame_.point; }
             static bool cursorUsable(Planner & planner) { return planner.isCursorUsable(); }

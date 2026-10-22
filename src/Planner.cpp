@@ -850,8 +850,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
     bool Planner::isCursorUsable()
     {
         // caller holds manualSelectionMutex_
-        return hasCursorPos_ && hasCursorMsg_ &&
-               isCursorFresh(lastCursorMsg_.tool_active, (ros::WallTime::now() - cursorRxWall_).toSec(), cursorTimeout_);
+        return hasCursorPos_ && hasCursorMsg_ && isCursorHeld(lastCursorMsg_.tool_active);
     }
 
     void Planner::trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg) {

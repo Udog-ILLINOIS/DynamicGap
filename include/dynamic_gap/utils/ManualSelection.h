@@ -141,16 +141,15 @@ namespace dynamic_gap
     }
 
     /**
-    * \brief Whether the cursor tool is still talking to the planner. The tool
-    * publishes at a fixed wall-clock rate whether or not the mouse moves, so
-    * this never depends on mouse movement.
+    * \brief Whether the last cursor message still selects a gap. The last known
+    * position stays valid however old it is: a still mouse, a pointer outside
+    * the panel or an RViz that stopped publishing keep the selection. Only the
+    * tool being switched off ends it.
     * \param toolActive tool_active of the last cursor message
-    * \param secondsSinceReceipt wall-clock age of the last cursor message
-    * \param timeout maximum age in seconds
     */
-    inline bool isCursorFresh(const bool & toolActive, const double & secondsSinceReceipt, const double & timeout)
+    inline bool isCursorHeld(const bool & toolActive)
     {
-        return toolActive && secondsSinceReceipt >= 0.0 && secondsSinceReceipt < timeout;
+        return toolActive;
     }
 
     /**

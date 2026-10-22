@@ -27,7 +27,7 @@ COLLISION_EPS = 0.01  # m, as arena_evaluation metrics
 
 SOURCE_NONE, SOURCE_GAP_CURSOR, SOURCE_CLICK_TO_MOVE, SOURCE_MODEL = 0, 1, 2, 3
 STATUS_PLANNED = 0
-CURSOR_FRESH_S = 0.5  # wall s; the planner's cursor timeout
+CURSOR_FRESH_S = 0.5  # wall s; the tool publishes every 0.1 s, older means it stopped
 
 
 def bag_files(session_dir):
