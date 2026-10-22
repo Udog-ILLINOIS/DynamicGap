@@ -29,6 +29,15 @@ SOURCE_NONE, SOURCE_GAP_CURSOR, SOURCE_CLICK_TO_MOVE, SOURCE_MODEL = 0, 1, 2, 3
 STATUS_PLANNED = 0
 CURSOR_FRESH_S = 0.5  # wall s; the tool publishes every 0.1 s, older means it stopped
 
+# manual selection rule (IL fix 43), planner defaults
+DEFAULT_MAX_BEARING_DEG = 60.0
+DEFAULT_SWITCH_RATIO = 0.7
+# the planner selects with the robot pose at selection time, the sample records
+# it at publish; odometry (50 Hz) can move in between, so a choice this close to
+# a threshold counts as reproduced
+SELECTION_BEARING_TOL = math.radians(2.0)
+SELECTION_RATIO_TOL = 0.02
+
 
 def bag_files(session_dir):
     """session_0.bag, session_1.bag, ... in split order."""
@@ -113,6 +122,106 @@ def nearest_feasible(sample):
         if dist < best_dist:
             best, best_dist = i, dist
     return best
+
+
+def selection_rule(params):
+    """(max bearing difference in rad, switch ratio) of the planner's manual
+    selection (IL fix 43), with the planner's fallbacks for out-of-range
+    values; None for sessions recorded before fix 43 (nearest feasible)."""
+    if "man_gap_max_bearing_deg" not in params and "man_gap_switch_ratio" not in params:
+        return None
+
+    def number(key, default, low, high):
+        value = params.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not low < value <= high:
+            return default
+        return float(value)
+
+    return (math.radians(number("man_gap_max_bearing_deg", DEFAULT_MAX_BEARING_DEG, 0.0, 180.0)),
+            number("man_gap_switch_ratio", DEFAULT_SWITCH_RATIO, 0.0, 1.0))
+
+
+def rule_selection(sample, followed, max_bearing, switch_ratio):
+    """The planner's gap-cursor choice (selectManualTrajectory, IL fix 43):
+    feasible candidates whose terminal point is within max_bearing of the
+    robot-to-cursor bearing, the nearest of those to the cursor, and the
+    followed gap (identity, None if none) kept unless the nearest one's cursor
+    distance is below switch_ratio times its own. Index into candidates, -1 if none."""
+    rbt = sample.robot_pose_odom.position
+    cx, cy = sample.cursor_odom.x, sample.cursor_odom.y
+    cursor_bearing = math.atan2(cy - rbt.y, cx - rbt.x)
+
+    def dist(i):
+        p = sample.candidates[i].terminal_pose.position
+        return math.hypot(p.x - cx, p.y - cy)
+
+    selectable = []
+    for i, c in enumerate(sample.candidates):
+        if not c.feasible:
+            continue
+        p = c.terminal_pose.position
+        diff = cursor_bearing - math.atan2(p.y - rbt.y, p.x - rbt.x)
+        if abs(math.atan2(math.sin(diff), math.cos(diff))) <= max_bearing:
+            selectable.append(i)
+    if not selectable:
+        return -1
+
+    nearest = min(selectable, key=dist)  # ties go to the lower index, as in the planner
+    current = next((i for i in selectable if identity(sample.candidates[i]) == followed), -1)
+    if current < 0 or nearest == current:
+        return nearest
+    return nearest if dist(nearest) < switch_ratio * dist(current) else current
+
+
+def selection_explained(sample, followed, rule):
+    """Whether the rule gives the recorded selected_idx, allowing for the
+    robot moving between selection and publish (SELECTION_*_TOL)."""
+    max_bearing, ratio = rule
+    return any(rule_selection(sample, followed, b, r) == sample.selected_idx
+               for b in (max_bearing, max_bearing - SELECTION_BEARING_TOL, max_bearing + SELECTION_BEARING_TOL)
+               for r in (ratio, ratio - SELECTION_RATIO_TOL, ratio + SELECTION_RATIO_TOL))
+
+
+def selection_mismatches(samples, params):
+    """Ticks whose recorded choice the planner's selection rule does not
+    reproduce: (tick_seq list, number of ticks checked).
+
+    Before fix 43, every gap-cursor tick must select the nearest feasible
+    candidate. From fix 43 on, the rule depends on the gap followed before, so
+    it is replayed tick by tick: the followed gap is the last gap-cursor
+    selection, cleared by click-to-move, by a selection that found no gap in
+    the cursor's direction and by an episode reset. Checked are gap-cursor
+    ticks and ticks where the cursor was usable but nothing was selected,
+    outside reset windows and after any hole in tick_seq (the followed gap is
+    then unknown until the next selection)."""
+    rule = selection_rule(params)
+    if rule is None:
+        cursor_ticks = [s for s in samples if s.source == SOURCE_GAP_CURSOR]
+        return [s.tick_seq for s in cursor_ticks if nearest_feasible(s) != s.selected_idx], len(cursor_ticks)
+
+    unknown = object()
+    followed, episode, prev = None, None, None
+    mismatched, checked = [], 0
+    for s in samples:
+        if (prev is None and s.tick_seq != 0) or (prev is not None and s.tick_seq != prev.tick_seq + 1):
+            followed = unknown  # recording started late, a hole, or a planner restart
+        prev = s
+        if s.status != STATUS_PLANNED:
+            continue  # the planner returned before selection
+        if episode is not None and s.episode_id != episode:
+            followed = None
+        episode = s.episode_id
+        if s.source == SOURCE_CLICK_TO_MOVE:
+            followed = None
+            continue
+        if s.source != SOURCE_GAP_CURSOR and not s.cursor_valid:
+            continue  # no usable cursor: selection did not run, the followed gap stays
+        if followed is not unknown and not s.in_reset_window:
+            checked += 1
+            if not selection_explained(s, followed, rule):
+                mismatched.append(s.tick_seq)
+        followed = selected_identity(s) if s.source == SOURCE_GAP_CURSOR else None
+    return mismatched, checked
 
 
 def is_usable_label(sample):
@@ -239,12 +348,13 @@ def check_session(session_dir, namespace=None, samples=None):
     check("tick_seq contiguous", not gaps,
           "{} gap(s){}; {} planner restart(s)".format(len(gaps), " e.g. {}".format(gaps[:3]) if gaps else "", restarts))
 
-    # recomputed nearest endpoint reproduces the recorded choice
-    cursor_ticks = [s for s in samples if s.source == SOURCE_GAP_CURSOR]
-    mismatched = [s.tick_seq for s in cursor_ticks if nearest_feasible(s) != s.selected_idx]
+    # the planner's selection rule, replayed, reproduces the recorded choice
+    mismatched, checked = selection_mismatches(samples, params)
     check("selection reproducible", not mismatched,
-          "{} of {} cursor ticks differ{}".format(len(mismatched), len(cursor_ticks),
-                                                   " e.g. tick {}".format(mismatched[:3]) if mismatched else ""))
+          "{} of {} selection ticks differ ({}){}".format(
+              len(mismatched), checked,
+              "nearest feasible" if selection_rule(params) is None else "direction cone + switch ratio",
+              " e.g. tick {}".format(mismatched[:3]) if mismatched else ""))
 
     # one clock: cursor stamps (RViz) and sample stamps (planner) agree; only
     # ticks whose cursor message is fresh (the tool may have been switched off)

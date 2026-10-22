@@ -173,6 +173,71 @@ class CheckTest(SessionTestCase):
         # episode 3 may still be running; episode 2 has no samples at all
         self.assertFalse(self.checks()[0]["every episode has an outcome"])
 
+    def use_selection_rule(self):
+        """params.yaml of a session recorded after IL fix 43."""
+        with open(os.path.join(self.dir, "params.yaml"), "w") as f:
+            yaml.safe_dump({"task_generator_server": {"timeout": 60.0, "goal_radius": 1.0},
+                            "man_gap_max_bearing_deg": 60.0, "man_gap_switch_ratio": 0.7}, f)
+
+    def follow(self, s, idx):
+        s.source = s.SOURCE_GAP_CURSOR
+        s.selected_idx = idx
+        s.selected_left_model_id, s.selected_right_model_id = il_bags.identity(s.candidates[idx])
+
+    def test_sticky_selection_reproduced(self):
+        self.use_selection_rule()
+        samples = self.good_samples()
+        # episode 0: the upper gap (3, 1) is followed; the cursor moves to (3, -0.1),
+        # slightly nearer the lower gap but not by the switch ratio, so the upper gap is kept
+        for s in samples[10:20]:
+            s.cursor_odom.y = -0.1
+            self.follow(s, 0)
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["selection reproducible"])
+
+    def test_sticky_switch_when_clearly_nearer(self):
+        self.use_selection_rule()
+        samples = self.good_samples()
+        for s in samples[10:20]:
+            s.cursor_odom.y = -0.9  # clearly nearer the lower gap
+            self.follow(s, 0)  # wrong: the planner switches
+        self.write(samples)
+        self.assertFalse(self.checks()[0]["selection reproducible"])
+        for s in samples[10:20]:
+            self.follow(s, 1)
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["selection reproducible"])
+
+    def test_no_gap_in_cursor_direction(self):
+        self.use_selection_rule()
+        samples = self.good_samples()
+        # cursor behind the robot: no gap within 60 degrees, so nothing is selected
+        for s in samples[5:8]:
+            s.cursor_odom.x, s.cursor_odom.y = -3.0, 0.0
+            s.source, s.selected_idx = s.SOURCE_NONE, -1
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["selection reproducible"])
+        self.follow(samples[6], 0)  # a gap pointing away from the cursor
+        self.write(samples)
+        self.assertFalse(self.checks()[0]["selection reproducible"])
+
+    def test_followed_gap_unknown_after_tick_hole(self):
+        self.use_selection_rule()
+        samples = self.good_samples()
+        for s in samples[:9]:
+            s.cursor_odom.y = -0.9
+            self.follow(s, 1)
+        for s in samples[10:20]:
+            s.cursor_odom.y = -0.1
+            self.follow(s, 0)
+        # tick 9, where the planner switched to the upper gap, is missing: tick 10
+        # cannot be checked, ticks 11-19 keep the upper gap
+        del samples[9]
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["selection reproducible"])
+        _, checked = il_bags.selection_mismatches(samples, il_bags.load_params(self.dir))
+        self.assertEqual(checked, 38)
+
     def test_collision_flagged(self):
         samples = self.good_samples()
         samples[30].scan.ranges = [0.15, 4.0]
