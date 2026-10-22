@@ -866,6 +866,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-39 | HIGH | Benchmark stages ran the default scenario (per-port config not read) | arena-rosnav | Fixed `7dcb61a57`, [doc](il_pipeline_fixes/39-benchmark-scenario-not-applied.md) |
 | PL-40 | MED | Cursor dropped after 0.5 s without a cursor message | dynamic_gap | Fixed `94b09eb`, [doc](il_pipeline_fixes/40-cursor-held-without-messages.md) |
 | PL-41 | MED | Pedestrian speed not settable at launch; pedsim steps in wall time (open) | arena-rosnav | Fixed `5605de45b` (argument), [doc](il_pipeline_fixes/41-pedestrian-speed-argument.md) |
+| PL-42 | LOW | No robot-to-goal cue for the operator (line only in an uncommitted stash) | dynamic_gap | Fixed `ac447be`, [doc](il_pipeline_fixes/42-goal-line.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
