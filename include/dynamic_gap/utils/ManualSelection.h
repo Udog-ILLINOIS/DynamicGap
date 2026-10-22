@@ -4,6 +4,7 @@
 
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/PoseArray.h>
+#include <manual_gap_msgs/ManualGapSample.h>
 
 #include <algorithm>
 #include <functional>
@@ -222,6 +223,22 @@ namespace dynamic_gap
         if (resetBeginId > episodeId)
             return true;  // a reset is in progress
         return secondsSinceReset >= 0.0 && secondsSinceReset < window;
+    }
+
+    /**
+    * \brief Sample at the start of a planning tick: planned, nothing selected.
+    * Ticks that end before selection (not ready, colliding, no gaps) keep
+    * selected_idx = -1 instead of the message default 0.
+    */
+    inline manual_gap_msgs::ManualGapSample newManualSample()
+    {
+        manual_gap_msgs::ManualGapSample sample;
+        sample.status = sample.STATUS_PLANNED;
+        sample.source = sample.SOURCE_NONE;
+        sample.selected_idx = -1;
+        sample.selected_left_model_id = -1;
+        sample.selected_right_model_id = -1;
+        return sample;
     }
 
     /**

@@ -2310,8 +2310,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         // manual mode: one imitation learning sample per tick, published on
         // every return path below
-        manual_gap_msgs::ManualGapSample sample;
-        sample.status = sample.STATUS_PLANNED;
+        manual_gap_msgs::ManualGapSample sample = newManualSample();
         manualHoldStill_ = false;
         ScopeExit<std::function<void()>> publishSampleOnReturn([&]()
         {

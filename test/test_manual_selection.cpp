@@ -82,6 +82,18 @@ TEST(ManualSelectionHelpers, ResetWindow)
     EXPECT_FALSE(dynamic_gap::isInResetWindow(-1, -1, -1.0, 1.0)); // no reset seen
 }
 
+// ticks that end before selection record no selection (not the message default 0)
+TEST(ManualSelectionHelpers, NewSampleHasNoSelection)
+{
+    manual_gap_msgs::ManualGapSample sample = dynamic_gap::newManualSample();
+    EXPECT_EQ(sample.STATUS_PLANNED, sample.status);
+    EXPECT_EQ(sample.SOURCE_NONE, sample.source);
+    EXPECT_EQ(-1, sample.selected_idx);
+    EXPECT_EQ(-1, sample.selected_left_model_id);
+    EXPECT_EQ(-1, sample.selected_right_model_id);
+    EXPECT_TRUE(sample.candidates.empty());
+}
+
 TEST(ManualSelectionHelpers, DownsamplePathKeepsLastPose)
 {
     geometry_msgs::PoseArray path;
