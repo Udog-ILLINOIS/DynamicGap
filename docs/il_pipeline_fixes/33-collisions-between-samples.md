@@ -11,7 +11,7 @@ Short contacts, typical for a pedestrian brushing the robot, were missed, so `CO
 
 ## What changed
 `data_recorder_node`:
-- `DataCollector.laserscan_callback` keeps the smallest range of every scan since the last row (NaN counts as `range_max`, as in `scan.csv`), under its own lock.
+- `DataCollector.laserscan_callback` keeps the smallest range of every scan since the last row (NaN counts as `range_max`, as in `scan.csv`), under its own lock, before it holds the scan for `scan.csv`, so a scan written to a row is always included in that row's minimum.
 - `take_scan_min()` returns that value and clears it; `None` if no scan arrived.
 - `Recorder._record` writes `scan_min.csv` (`time,data`) next to `scan.csv`, with the same time. A row with no scan since the previous one has an empty `data` cell.
 
@@ -23,7 +23,7 @@ Short contacts, typical for a pedestrian brushing the robot, were missed, so `CO
 ## Effects
 - Autonomous mode: no change.
 - Manual mode: no change.
-- Recorded data / metrics: new folders count contacts between rows; collision counts can only go up compared with the old method on the same run. Old folders are scored as before.
+- Recorded data / metrics: new folders see contacts between rows. Because each row now covers the whole interval since the previous row, two contacts in consecutive rows can count as one onset. Old folders are scored as before.
 - As before, a contact already present at the first row of an episode is not counted (onsets only).
 
 ## Test
