@@ -141,6 +141,63 @@ namespace dynamic_gap
     }
 
     /**
+    * \brief Candidates whose terminal point lies in the cursor's direction from the robot
+    * \param terminals terminal point per candidate (x, y)
+    * \param feasible per candidate, whether it can be selected
+    * \param rbtX robot x, same frame as terminals
+    * \param rbtY robot y, same frame as terminals
+    * \param cursorX cursor x, same frame as terminals
+    * \param cursorY cursor y, same frame as terminals
+    * \param maxBearingDiff largest angle (rad) between the robot-to-cursor and robot-to-terminal bearings
+    * \return per candidate, feasible and within maxBearingDiff of the cursor bearing
+    */
+    inline std::vector<bool> inCursorDirection(const std::vector<std::pair<float, float>> & terminals,
+                                               const std::vector<bool> & feasible,
+                                               const float & rbtX, const float & rbtY,
+                                               const float & cursorX, const float & cursorY,
+                                               const float & maxBearingDiff)
+    {
+        std::vector<bool> inDirection(feasible.size(), false);
+        float cursorBearing = std::atan2(cursorY - rbtY, cursorX - rbtX);
+        for (size_t i = 0; i < terminals.size() && i < feasible.size(); i++)
+        {
+            if (!feasible[i])
+                continue;
+
+            float terminalBearing = std::atan2(terminals[i].second - rbtY, terminals[i].first - rbtX);
+            float diff = std::atan2(std::sin(cursorBearing - terminalBearing), std::cos(cursorBearing - terminalBearing));
+            inDirection[i] = std::abs(diff) <= maxBearingDiff;
+        }
+        return inDirection;
+    }
+
+    /**
+    * \brief Keep the current candidate unless the nearest one is clearly nearer the cursor
+    * \param terminals terminal point per candidate (x, y)
+    * \param cursorX cursor x, same frame as terminals
+    * \param cursorY cursor y, same frame as terminals
+    * \param nearest index of the nearest selectable candidate, -1 if none
+    * \param current index of the currently followed candidate, -1 if it is not selectable this tick
+    * \param switchRatio the nearest candidate replaces the current one only if
+    *        dist(nearest) < switchRatio * dist(current)
+    * \return index of the candidate to follow, -1 if none
+    */
+    inline int holdCurrentCandidate(const std::vector<std::pair<float, float>> & terminals,
+                                    const float & cursorX,
+                                    const float & cursorY,
+                                    const int & nearest,
+                                    const int & current,
+                                    const float & switchRatio)
+    {
+        if (current < 0 || nearest < 0 || nearest == current)
+            return nearest;
+
+        float nearestDist = std::hypot(terminals[nearest].first - cursorX, terminals[nearest].second - cursorY);
+        float currentDist = std::hypot(terminals[current].first - cursorX, terminals[current].second - cursorY);
+        return nearestDist < switchRatio * currentDist ? nearest : current;
+    }
+
+    /**
     * \brief Whether the last cursor message still selects a gap. The last known
     * position stays valid however old it is: a still mouse, a pointer outside
     * the panel or an RViz that stopped publishing keep the selection. Only the

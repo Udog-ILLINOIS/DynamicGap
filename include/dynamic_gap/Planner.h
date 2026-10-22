@@ -188,6 +188,8 @@ namespace dynamic_gap
             bool manualResetPending_ = false; /**< Manual mode: an episode reset to apply at the next tick */
             int selectedLeftModelID_ = -1; /**< Identity of the cursor-selected gap */
             int selectedRightModelID_ = -1;
+            double manualMaxBearingDiff_ = M_PI / 3.0; /**< Selectable gaps: terminal within this bearing (rad) of the cursor, from the robot */
+            double manualSwitchRatio_ = 0.7; /**< Another gap replaces the followed one only if its cursor distance is below this fraction */
 
             int selectedManualCandidateId_ = -1;
             bool manualSelectionMode_ = false;

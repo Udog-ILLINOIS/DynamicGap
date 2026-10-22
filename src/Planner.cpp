@@ -134,6 +134,25 @@ namespace dynamic_gap
                 break;
         }
         ROS_INFO_STREAM_NAMED("Planner", "manual gap selection: " << (manualSelectionMode_ ? "on" : "off"));
+
+        // set by start_trials.launch, so they are saved in the session's params.yaml
+        double maxBearingDeg = ros::param::param("/man_gap_max_bearing_deg", 60.0);
+        if (maxBearingDeg <= 0.0 || maxBearingDeg > 180.0)
+        {
+            ROS_ERROR_STREAM_NAMED("Planner", "/man_gap_max_bearing_deg must be in (0, 180], using 60");
+            maxBearingDeg = 60.0;
+        }
+        manualMaxBearingDiff_ = maxBearingDeg * M_PI / 180.0;
+
+        manualSwitchRatio_ = ros::param::param("/man_gap_switch_ratio", 0.7);
+        if (manualSwitchRatio_ <= 0.0 || manualSwitchRatio_ > 1.0)
+        {
+            ROS_ERROR_STREAM_NAMED("Planner", "/man_gap_switch_ratio must be in (0, 1], using 0.7");
+            manualSwitchRatio_ = 0.7;
+        }
+        if (manualSelectionMode_)
+            ROS_INFO_STREAM_NAMED("Planner", "manual gap selection: gaps within " << maxBearingDeg
+                                  << " deg of the cursor, switch ratio " << manualSwitchRatio_);
         // ROS_INFO_STREAM("man_gap from param server: " << nh_.param<bool>("man_gap", false));
         // ROS_INFO_STREAM("manualSelectionMode_ set to: " << manualSelectionMode_);
 
@@ -1102,10 +1121,38 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (!cursorUsable)
             return -1;
 
-        int selectedIdx = nearestCandidate(terminals, feasible,
-                                           cursorPosOdomFrame_.point.x, cursorPosOdomFrame_.point.y);
+        // only gaps in the cursor's direction from the robot; none there: no selection
+        const float cursorX = cursorPosOdomFrame_.point.x;
+        const float cursorY = cursorPosOdomFrame_.point.y;
+        std::vector<bool> selectable = inCursorDirection(terminals, feasible, rbtPos.x, rbtPos.y,
+                                                         cursorX, cursorY, manualMaxBearingDiff_);
+
+        // the gap being followed, if it is still selectable
+        int currentIdx = -1;
+        if (selectedLeftModelID_ != -1 || selectedRightModelID_ != -1)
+        {
+            for (size_t i = 0; i < currentManualCandidates_.size(); i++)
+            {
+                const ManualCandidate & c = currentManualCandidates_.at(i);
+                if (selectable.at(i) && c.left_model_id == selectedLeftModelID_ && c.right_model_id == selectedRightModelID_)
+                {
+                    currentIdx = i;
+                    break;
+                }
+            }
+        }
+
+        // a different gap is taken only when clearly nearer the cursor
+        int selectedIdx = holdCurrentCandidate(terminals, cursorX, cursorY,
+                                               nearestCandidate(terminals, selectable, cursorX, cursorY),
+                                               currentIdx, manualSwitchRatio_);
         if (selectedIdx < 0)
+        {
+            // nothing followed now: a gap selected later starts a new trajectory
+            selectedLeftModelID_ = -1;
+            selectedRightModelID_ = -1;
             return -1;
+        }
 
         const ManualCandidate & selected = currentManualCandidates_.at(selectedIdx);
         const Trajectory & selectedTraj = gapTrajs.at(selectedIdx);

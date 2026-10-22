@@ -29,6 +29,44 @@ TEST(ManualSelectionHelpers, NearestFeasibleCandidate)
     EXPECT_EQ(0, dynamic_gap::nearestCandidate({{1.0f, 0.0f}, {-1.0f, 0.0f}}, {true, true}, 0.0f, 0.0f));
 }
 
+// IL fix 43: only gaps in the cursor's direction from the robot are selectable
+TEST(ManualSelectionHelpers, InCursorDirection)
+{
+    // robot at (1, 1); terminals east, north, west, and east but infeasible
+    std::vector<std::pair<float, float>> terminals = {{4.0f, 1.0f}, {1.0f, 4.0f}, {-2.0f, 1.0f}, {4.0f, 1.5f}};
+    std::vector<bool> feasible = {true, true, true, false};
+    const float sixty = M_PI / 3.0;
+
+    // cursor east: only the feasible east terminal
+    EXPECT_EQ((std::vector<bool>{true, false, false, false}),
+              dynamic_gap::inCursorDirection(terminals, feasible, 1.0f, 1.0f, 3.0f, 1.0f, sixty));
+    // cursor north-east (45 deg): east and north are both within 60 deg
+    EXPECT_EQ((std::vector<bool>{true, true, false, false}),
+              dynamic_gap::inCursorDirection(terminals, feasible, 1.0f, 1.0f, 2.0f, 2.0f, sixty));
+    // cursor south-west: nothing
+    EXPECT_EQ((std::vector<bool>{false, false, false, false}),
+              dynamic_gap::inCursorDirection(terminals, feasible, 1.0f, 1.0f, 0.0f, -1.0f, sixty));
+    // west across the +-pi wrap
+    EXPECT_EQ((std::vector<bool>{false, false, true, false}),
+              dynamic_gap::inCursorDirection(terminals, feasible, 1.0f, 1.0f, -1.0f, 0.9f, sixty));
+}
+
+// IL fix 43: the followed gap is kept unless another is clearly nearer the cursor
+TEST(ManualSelectionHelpers, HoldCurrentCandidate)
+{
+    // cursor at the origin; terminals 1.0, 0.8 and 0.5 away
+    std::vector<std::pair<float, float>> terminals = {{1.0f, 0.0f}, {0.0f, 0.8f}, {-0.5f, 0.0f}};
+    // 0.8 is not below 0.7 * 1.0: keep the current one
+    EXPECT_EQ(0, dynamic_gap::holdCurrentCandidate(terminals, 0.0f, 0.0f, 1, 0, 0.7f));
+    // 0.5 is below 0.7 * 1.0: switch
+    EXPECT_EQ(2, dynamic_gap::holdCurrentCandidate(terminals, 0.0f, 0.0f, 2, 0, 0.7f));
+    // ratio 1 is plain nearest
+    EXPECT_EQ(1, dynamic_gap::holdCurrentCandidate(terminals, 0.0f, 0.0f, 1, 0, 1.0f));
+    // no current gap: nearest; nothing selectable: none
+    EXPECT_EQ(1, dynamic_gap::holdCurrentCandidate(terminals, 0.0f, 0.0f, 1, -1, 0.7f));
+    EXPECT_EQ(-1, dynamic_gap::holdCurrentCandidate(terminals, 0.0f, 0.0f, -1, -1, 0.7f));
+}
+
 TEST(ManualSelectionHelpers, CursorHeldWithoutNewMessages)
 {
     // the last known position stays valid; only switching the tool off ends it
