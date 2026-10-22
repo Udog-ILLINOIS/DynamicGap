@@ -101,6 +101,7 @@ if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(${PROJECT_NAME}_test
     test/test_main.cpp
     test/test_trajflag_uninitialised.cpp
+    test/test_planner_manual_mode.cpp
   )
   if(TARGET ${PROJECT_NAME}_test)
     target_link_libraries(${PROJECT_NAME}_test ${PROJECT_NAME} ${catkin_LIBRARIES})

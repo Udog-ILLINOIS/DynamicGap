@@ -78,7 +78,8 @@ namespace dynamic_gap
 
             setCurrentTraj(createdTraj);
             setCurrentTrajTrackingStartTime(ros::Time::now());
-            setCurrentTrajLifespan(ros::Duration(estimatedCompletionTime));
+            setCurrentTrajLifespan(ros::Duration(2.0 * estimatedCompletionTime));
+            createdTrajEstimatedTime_ = ros::Duration(estimatedCompletionTime);
             trajVisualizer_->drawCurrentTrajectory(createdTraj);
             trajFlag = GAP;
 
@@ -90,7 +91,10 @@ namespace dynamic_gap
         if (isTrackingCreatedTraj_)
         {
             ros::Duration trackingTime = ros::Time::now() - currentTrajTrackingStartTime_;
-            if (trackingTime > currentTrajLifespan_)
+            float distToTarget = std::sqrt(std::pow(trajCreationPointOdomFrame_.point.x - rbtPoseInOdomFrame_.pose.position.x, 2) +
+                                           std::pow(trajCreationPointOdomFrame_.point.y - rbtPoseInOdomFrame_.pose.position.y, 2));
+            if (isCreatedTrajDone(distToTarget, trackingTime.toSec(), createdTrajEstimatedTime_.toSec(),
+                                  cfg_.goal.xy_global_goal_tolerance))
             {
                 isTrackingCreatedTraj_ = false;
             }
@@ -115,7 +119,21 @@ namespace dynamic_gap
 
         // Config Setup
         cfg_.loadRosParamFromNodeHandle(name);
-        ros::param::get("/man_gap", manualSelectionMode_);
+
+        XmlRpc::XmlRpcValue manGapParam;
+        bool hasManGapParam = ros::param::get("/man_gap", manGapParam);
+        switch (parseManualModeParam(hasManGapParam, manGapParam, manualSelectionMode_))
+        {
+            case ManualModeParam::MISSING:
+                ROS_WARN_STREAM_NAMED("Planner", "/man_gap not set, manual gap selection off");
+                break;
+            case ManualModeParam::INVALID:
+                ROS_ERROR_STREAM_NAMED("Planner", "/man_gap is not true or false, manual gap selection off");
+                break;
+            default:
+                break;
+        }
+        ROS_INFO_STREAM_NAMED("Planner", "manual gap selection: " << (manualSelectionMode_ ? "on" : "off"));
         // ROS_INFO_STREAM("man_gap from param server: " << nh_.param<bool>("man_gap", false));
         // ROS_INFO_STREAM("manualSelectionMode_ set to: " << manualSelectionMode_);
 
@@ -187,6 +205,8 @@ namespace dynamic_gap
         rvizPublishPointSubsciber_ = nh_.subscribe("/gap_selection_point", 1, &Planner::rvizPublishPointSubsciberCB, this); //initlize the pubcriber for the publish point RVIz button on manuel trajectroy selction
 
         trajCreationPointSub_ = nh_.subscribe("/traj_creation_point", 1, &Planner::trajCreationPointCB, this);
+
+        scenarioResetSub_ = nh_.subscribe("/scenario_reset", 1, &Planner::scenarioResetCB, this);
 
         manualCandidateMarkerPub_ = nh_.advertise<visualization_msgs::MarkerArray>(
             "/manual_candidate_markers", 1);
@@ -283,10 +303,9 @@ namespace dynamic_gap
 
         gapDetector_->preprocessScan(scan);
 
-        scan_ = scan;
+        float minScanDist = *std::min_element(scan->ranges.begin(), scan->ranges.end());
 
-        float minScanDist = *std::min_element(scan_->ranges.begin(), scan_->ranges.end());
-
+        // scan_ is only replaced together with the gaps computed from it
         if (minScanDist < (cfg_.rbt.r_inscr + 0.0075))
         {
             ROS_INFO_STREAM_NAMED("Planner", "       in collision!");
@@ -297,6 +316,8 @@ namespace dynamic_gap
         {
             colliding_ = false;
         }
+
+        scan_ = scan;
 
         cfg_.updateParamFromScan(scan_);
 
@@ -597,6 +618,10 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (!haveTFs_)
             return;
 
+        // rebuilt from every message, so agents that are gone disappear
+        std::map<std::string, geometry_msgs::Pose> currentTrueAgentPoses;
+        std::map<std::string, geometry_msgs::Vector3Stamped> currentTrueAgentVels;
+
         for (int i = 0; i < pedOdomMsg->agent_states.size(); i++)
         {
             pedsim_msgs::AgentState agentIState = pedOdomMsg->agent_states[i];
@@ -619,7 +644,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             // ROS_INFO_STREAM_NAMED("Planner", "      outgoing pose: (" << agentPoseRobotFrame.pose.position.x << ", " << agentPoseRobotFrame.pose.position.y << ")");
 
             // ROS_INFO_STREAM("updating " << agentNamespace << " odom from " << agent_odom_vects.at(agentID)[0] << ", " << agent_odom_vects.at(agentID)[1] << " to " << odom_vect[0] << ", " << odom_vect[1]);
-            currentTrueAgentPoses_[agentIState.id] = agentPoseRobotFrame.pose;
+            currentTrueAgentPoses[agentIState.id] = agentPoseRobotFrame.pose;
 
             // std::cout << "in agentOdomCB" << std::endl;
             // std::cout << "transforming from " << source_frame << " to " << cfg_.robot_frame_id << std::endl;
@@ -630,11 +655,28 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             tf2::doTransform(agentVelMsgFrame, agentVelRobotFrame, msgFrame2RobotFrame);
             // std::cout << "outcoming vector: " << agentVelRobotFrame.vector.x << ", " << agentVelRobotFrame.vector.y << std::endl;
 
-            currentTrueAgentVels_[agentIState.id] = agentVelRobotFrame;
+            currentTrueAgentVels[agentIState.id] = agentVelRobotFrame;
         
         }
 
-        agentVisualizer_->drawPedestrianHistories(currentTrueAgentPoses_, currentTrueAgentVels_, cfg_.robot_frame_id);
+        {
+            // read by the gap estimators in laserScanCB
+            boost::mutex::scoped_lock gapset(gapMutex_);
+            currentTrueAgentPoses_ = currentTrueAgentPoses;
+            currentTrueAgentVels_ = currentTrueAgentVels;
+        }
+
+        agentVisualizer_->drawPedestrianHistories(currentTrueAgentPoses, currentTrueAgentVels, cfg_.robot_frame_id);
+    }
+
+    void Planner::scenarioResetCB(const std_msgs::Int16::ConstPtr& msg)
+    {
+        ROS_INFO_STREAM_NAMED("Planner", "scenario reset, episode " << msg->data);
+
+        // pedestrians are removed and respawned at a reset
+        boost::mutex::scoped_lock gapset(gapMutex_);
+        currentTrueAgentPoses_.clear();
+        currentTrueAgentVels_.clear();
     }
 
     bool Planner::setPlan(const std::vector<geometry_msgs::PoseStamped> & globalPlanMapFrame)
@@ -724,6 +766,14 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
     void Planner::trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg) {
         boost::mutex::scoped_lock lock(manualSelectionMutex_); // or a separate mutex if this needs independent locking
+
+        // click-to-move is a manual-mode tool
+        if (!manualSelectionMode_)
+        {
+            hasTrajCreationPoint_ = false;
+            isTrackingCreatedTraj_ = false;
+            return;
+        }
 
         if (!haveTFs_)
             return;
@@ -2158,26 +2208,10 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         }
         else
         {
-            bool handledTrajCreation = false;
-            if (hasTrajCreationPoint_ || isTrackingCreatedTraj_) {
-                handledTrajCreation = tryHandleTrajCreationPoint(trajFlag);
-            } else {
-                pickTraj(trajFlag, lowestCostTrajIdx,
-                        gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
-                        ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
-                        idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
-            }
-
-            if (handledTrajCreation) {
-                chosenTraj = getCurrentTraj();
-                for (Gap * planningGap : planningGaps) delete planningGap;
-                for (Gap * copiedRawGap : copiedRawGaps) delete copiedRawGap;
-                for (Ungap * ungap : ungaps) delete ungap;
-                for (GapTube * tube : gapTubes) delete tube;
-                timeKeeper_->stopTimer(PLAN);
-                timeKeeper_->computeAverageNumberGaps(gapCount);
-                return;
-            }
+            pickTraj(trajFlag, lowestCostTrajIdx,
+                    gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
+                    ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
+                    idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
         }
 
         timeKeeper_->stopTimer(TRAJ_PICK);
@@ -2675,6 +2709,10 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         float cmdVelBufferSum = std::accumulate(cmdVelBuffer_.begin(), cmdVelBuffer_.end(), float(0));
         
         bool keepPlanning = cmdVelBufferSum > 1.0 || !cmdVelBuffer_.full();
+
+        // the operator may be holding the robot still on purpose
+        if (manualSelectionMode_)
+            return true;
         
         if ((trajFlag == GAP || trajFlag == UNGAP) && !keepPlanning && !cfg_.ctrl.man_ctrl) 
         {

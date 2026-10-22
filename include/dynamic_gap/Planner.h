@@ -25,6 +25,7 @@
 #include <dynamic_gap/utils/Gap.h>
 #include <dynamic_gap/utils/Trajectory.h>
 #include <dynamic_gap/utils/Utils.h>
+#include <dynamic_gap/utils/ManualSelection.h>
 #include <dynamic_gap/gap_association/GapPointAssociator.h>
 #include <dynamic_gap/gap_detection/GapDetector.h>
 #include <dynamic_gap/gap_propagation/GapPropagator.h>
@@ -62,6 +63,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <std_msgs/Int16.h>
 #include <std_msgs/Int32.h>
 #include <visualization_msgs/MarkerArray.h>
 
@@ -161,13 +163,16 @@ namespace dynamic_gap
             ros::Subscriber rvizPublishPointSubsciber_; //for manuel_gap_selection click to point
             ros::Subscriber trajCreationPointSub_; //for manuel_traj_creation click to point
 
+            ros::Subscriber scenarioResetSub_; /**< Subscriber to episode resets of the task generator */
+
             int selectedManualCandidateId_ = -1;
-            bool manualSelectionMode_ = true;
+            bool manualSelectionMode_ = false;
             geometry_msgs::PointStamped cursorPosOdomFrame_;
             bool hasCursorPos_ = false;
             geometry_msgs::PointStamped trajCreationPointOdomFrame_;
             bool hasTrajCreationPoint_ = false;
             bool isTrackingCreatedTraj_ = false;
+            ros::Duration createdTrajEstimatedTime_; /**< Estimated time to reach the clicked point */
 
             std::vector<ManualCandidate> currentManualCandidates_;
             boost::mutex manualSelectionMutex_;
@@ -178,6 +183,12 @@ namespace dynamic_gap
             void rvizPublishPointSubsciberCB(const geometry_msgs::PointStamped::ConstPtr& msg);
 
             void trajCreationPointCB(const geometry_msgs::PointStamped::ConstPtr& msg);
+
+            /**
+            * \brief Call back function for episode resets of the task generator
+            * \param msg id of the new episode
+            */
+            void scenarioResetCB(const std_msgs::Int16::ConstPtr& msg);
             bool tryHandleTrajCreationPoint(int & trajFlag);
 
             void publishManualCandidateMarkers(const std::vector<Trajectory>& gapTrajs,
