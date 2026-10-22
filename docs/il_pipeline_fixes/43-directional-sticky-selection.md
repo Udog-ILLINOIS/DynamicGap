@@ -30,6 +30,8 @@ Parameters, global, set by `start_trials.launch` (args of the same name) and the
 - `man_gap_max_bearing_deg`, default 60, in (0, 180]
 - `man_gap_switch_ratio`, default 0.7, in (0, 1]; 1 is the old nearest-wins rule
 
+`il_tools/il_check_session`'s "selection reproducible" check replays this rule (with the parameters from `params.yaml`) since the follow-up to this fix; before it, it recomputed plain nearest-feasible and failed on 15–19% of cursor ticks of every post-43 session (plan 3.3).
+
 The per-tick sample is unchanged: `selected_idx` is the gap followed, `cursor_dist` and `cursor_bearing_diff` per candidate still allow recomputing either rule offline.
 
 ## IL data

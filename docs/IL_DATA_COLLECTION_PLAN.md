@@ -5,20 +5,40 @@ It merges and supersedes `IL_DATA_COLLECTION_PLAN.md` (original issue list),
 `IL_DATA_COLLECTION_DESIGN.md` (first fix design) and
 `IL_DATA_COLLECTION_REVIEW.md` (review of both).
 
-**Status (2026-10-21, evening).** Phases 1, 3, 4 (code) and 6 (tools) are
-implemented: fixes A–D, the message package `manual_gap_msgs`, `record_il.launch`,
-and the offline tools in `il_tools/` (checks, dataset build, replay viewer).
-All PL issues are fixed except the four kept as docs only (23, 26, 30, 31).
-Each change has a doc in `docs/il_pipeline_fixes/`, unit tests, and was
-checked in a headless sim with a fake cursor (manual and autonomous); a
-recorded session passes every automatic check. Open: R-25 and R-27 (need a
-real session to look at), decisions D1–D7 where the defaults below were
-applied, the pilot (Phase 2), the collection protocol (Phase 5,
+**Status (2026-10-22, dynamic_gap `5ecc15a`, fixes up to 45).** Phases 1,
+3, 4 (code) and 6 (tools) are implemented: fixes A–D, the message package
+`manual_gap_msgs`, `record_il.launch`, and the offline tools in `il_tools/`
+(checks, dataset build, replay viewer). All PL issues are fixed except the
+four kept as docs only (23, 26, 30, 31). Each change has a doc in
+`docs/il_pipeline_fixes/`, unit tests, and was checked in a headless sim with
+a fake cursor (manual and autonomous). Open: R-25 and R-27 (need a real
+session to look at), the pilot (Phase 2), the collection protocol (Phase 5,
 `IL_COLLECTION_PROTOCOL.md` is a template), and an autonomous benchmark
-regression run. One deliberate deviation from 1.5: the cursor is never
-ignored for lack of mouse movement (P2/P4 `last_move_wall` rule dropped,
-user requirement: a still mouse keeps its selection); resets are flagged
-in the sample instead (`in_reset_window`).
+regression run.
+
+**This file keeps the history.** Part 1 is the plan as designed; several
+parts were changed while implementing it. The current system is described
+in `COMPLETE_OVERVIEW_IL_DOC.md`; where the two disagree, the overview
+reflects the code. Deviations from Part 1:
+
+- **Cursor validity (1.5 P2, P4).** The cursor is never ignored for lack of
+  mouse movement or for lack of new messages: the `last_move_wall` rule and
+  the 0.5 s `cursorTimeout` were both dropped (fix 40; user requirement: a
+  still mouse keeps its selection). Only `tool_active = false` ends the
+  selection. Resets are flagged in the sample instead (`in_reset_window`).
+- **Behaviour (D3, 1.1 principles).** "Flag only" was overridden: in manual
+  mode the robot holds still whenever nothing is selected, and the planner's
+  own control laws never run (fixes 16, 37).
+- **Selection rule (D2).** Hover-nearest was replaced by a direction cone
+  plus a sticky switch (fix 43, `/man_gap_max_bearing_deg`,
+  `/man_gap_switch_ratio`).
+- **Rate.** The planning tick is 10 Hz configured, ≈9 Hz measured, not 5 Hz
+  (fix 15).
+- **Usable label.** The rule also requires `selected_idx >= 0`
+  (`il_bags.is_usable_label`); early-return ticks record `selected_idx = -1`
+  (fix 45).
+- **Control.** The robot drives holonomic since fix 44; sessions before it
+  are non-holonomic.
 
 **Basis.** Line references are pinned to these commits (R-34):
 
@@ -70,24 +90,26 @@ human saw it.
 
 ### Principles
 
-- The sample is defined at the 5 Hz planning tick and stamped in-process.
+- The sample is defined at the planning tick (10 Hz configured, ≈9 Hz
+  measured; first written here as 5 Hz, see PL-15) and stamped in-process.
 - Record facts and flags at collection time. Filter and shift offline.
 - Do not change robot behaviour unless the data cannot be made honest otherwise.
 - Every new line in the planner is guarded by `manualSelectionMode_`.
 
-## 1.2 Decisions still open
+## 1.2 Decisions
 
-Defaults below are what the plan assumes until you say otherwise.
+The "Default assumed here" column is the plan as written; "Current state"
+is what the code does as of 2026-10-22.
 
-| # | Decision | Default assumed here |
-|---|---|---|
-| D1 | Does a still mouse mean a map spot or a direction from the robot? | Whatever is under the cursor on screen (see 1.5, T2). The RViz view then decides which it is. With the shipped view (top-down, following `rto/base_link`) a still mouse means a fixed offset from the robot. |
-| D2 | Hover-nearest, or latch a gap until the operator points elsewhere? | Hover-nearest for version 1; revisit after the pilot. |
-| D3 | On a dead cursor: change robot behaviour, or only flag? | Flag only. |
-| D4 | Include the autonomous planner's pick? | Not in version 1. |
-| D5 | What is the model given as input? | Scan, robot velocity, goal, candidate set. RViz is cut down to match. |
-| D6 | Gaps only, or also "go straight" and "wait"? | Gaps only; forced-choice ticks are flagged. |
-| D7 | Where bags are stored (`data_root`). | Not set. |
+| # | Decision | Default assumed here | Current state |
+|---|---|---|---|
+| D1 | Does a still mouse mean a map spot or a direction from the robot? | Whatever is under the cursor on screen (see 1.5, T2). The RViz view then decides which it is. With the shipped view (top-down, following `rto/base_link`) a still mouse means a fixed offset from the robot. | As assumed; re-projected every publish (fix 29). |
+| D2 | Hover-nearest, or latch a gap until the operator points elsewhere? | Hover-nearest for version 1; revisit after the pilot. | **Decided:** direction cone + sticky switch (fix 43). Thresholds to check in the pilot. |
+| D3 | On a dead cursor: change robot behaviour, or only flag? | Flag only. | **Overridden:** the robot holds still without a selection (fixes 16, 37); a still mouse is not a dead cursor (fix 40). |
+| D4 | Include the autonomous planner's pick? | Not in version 1. | Not recorded (M-03 / D9 open). |
+| D5 | What is the model given as input? | Scan, robot velocity, goal, candidate set. RViz is cut down to match. | Inputs as assumed; RViz is **not** cut down yet (PL-26). |
+| D6 | Gaps only, or also "go straight" and "wait"? | Gaps only; forced-choice ticks are flagged. | Gaps only; ungap and idling are off in both modes (PL-31), so the flags are always false. |
+| D7 | Where bags are stored (`data_root`). | Not set. | Pilot uses `/home/abdel/il_data`; not fixed in the protocol. |
 
 ## 1.3 Fix A — one candidate list per tick
 
@@ -113,6 +135,13 @@ build the planner. `tick_seq` increments on every tick and a sample is
 published on every exit path of the planning loop, with an empty candidate
 set if need be. There are three early returns before candidates exist
 (not ready, colliding, no gaps; 1.11 R-28).
+
+The sketches below are the design. The implemented messages are in
+arena-rosnav `utils/ros/msgs/manual_gap_msgs/msg/` (`SCHEMA_VERSION = 1`)
+and add to `ManualGapSample`: `status` (`PLANNED`, `NOT_READY`, `COLLIDING`,
+`NO_GAPS`), `cursor_valid` (a cursor point was available for selection) and
+`hold_still` (zero velocity commanded this tick). `episode_id` is -1 before
+the first `/scenario_reset`.
 
 ### `CursorState.msg` (published by the RViz tool)
 
@@ -198,7 +227,8 @@ geometry_msgs/Point click_point_odom   # for CLICK_TO_MOVE
 ```
 
 **A tick is a usable expert label when**
-`source == GAP_CURSOR && cursor_live && !in_reset_window`.
+`source == GAP_CURSOR && cursor_live && !in_reset_window && selected_idx >= 0`
+(`il_bags.is_usable_label`; the `selected_idx` term was added with fix 45).
 
 The manual branch also sets the planner's current left/right model IDs, as
 the autonomous path does.
@@ -249,6 +279,11 @@ hold. Nothing here requires the operator to keep moving the mouse.
              && (wall_now - cursor_rx_wall) < cursorTimeout   // ~0.5 s wall
              && last_move_wall > last_reset_wall
   ```
+
+  *As implemented (fix 40):* `cursor_live = tool_active && pick_ok && tf ok`.
+  Neither the age term nor the `last_move_wall` term is used: the last known
+  cursor is held until `tool_active = false`. Old cursor messages are found
+  offline from `cursor_rx_wall` (`il_bags.CURSOR_FRESH_S`, 0.5 s).
 - **P3. Clock check.** If the cursor's sim stamp and the planner clock differ
   by seconds, log an error (RViz is not on sim time).
 - **P4. Reset — the one behaviour change.** On `scenario_reset`, clear
@@ -258,6 +293,13 @@ hold. Nothing here requires the operator to keep moving the mouse.
   than it. Subscribe to `scenario_reset` directly: `Planner::reset()` is
   never called on an episode reset (1.11, R-04). Also clear gap estimator
   state, which does survive the teleport (1.11, R-26).
+
+  *As implemented:* the reset clears the previous gaps and estimators, the
+  click-to-move state and the selection (on the planning thread), and the
+  ground-truth agent maps (PL-25). The cursor itself is **not** cleared and
+  is not ignored until the mouse moves: the tool re-projects the screen
+  point after the teleport, and a still mouse keeps its selection. Reset
+  ticks are excluded by `in_reset_window` instead.
 - **P5. No distance gate in the planner.** `cursor_dist` and
   `cursor_bearing_diff` are recorded per candidate; gating is done offline
   with thresholds set from the pilot.
@@ -288,6 +330,13 @@ each split (check that your `rosbag record` supports `--repeat-latched`).
     view.rviz          the RViz config used
     notes.txt          operator ID, instruction given, anything odd
 ```
+
+*As implemented* (`il_session_recorder`, fix 07): also `versions/<repo>.diff`
+(uncommitted changes) and `episodes.csv` (one row per
+`/scenario_reset_begin` and `/scenario_reset`, with wall and sim time, start
+and goal); bags split at 2048 MB; the recorder refuses an unset, relative or
+in-repo `data_root` and a non-empty session folder, and is `required`, so a
+refusal stops the launch. A benchmark relaunch keeps recording (PL-38).
 
 `data_root` is a launch argument and sits outside the git repo (D7).
 
@@ -320,6 +369,14 @@ The bags are the raw record. A script reads them and writes the training set.
 - **Reporting.** Per session: ticks, usable ticks, decisions (identity
   switches backed by mouse movement), ticks with more than one candidate.
 
+*As implemented:* `il_tools/il_check_session` (checks and report) and
+`il_tools/il_build_dataset` (filters, lag, split 80/10/10 by episode hash);
+see `il_pipeline_fixes/il-offline-tools.md` and overview II.8. The lag is set
+in wall seconds and matched through `wall_stamp`, not converted with the
+real-time factor. Episode outcomes (`GOAL_REACHED`, `TIMEOUT`, `ABORTED`,
+plus a collision flag) are derived offline by `il_bags.episode_outcomes`;
+the task generator publishes none.
+
 ## 1.8 Collection protocol (to be written before collecting)
 
 One page covering: the instruction given to operators (what to optimise);
@@ -333,13 +390,18 @@ ticks; the fixed RViz config.
 |---|---|---|
 | 0 | Code checks: R-04, R-17, R-19, R-21, R-22, R-25, R-26, R-27. Pin repo commits. Settle D1–D7. | **Code checks done (1.11).** R-25, R-27 need a running sim. D1–D7 open. |
 | 1 | Thin slice: message package, single candidate list (A), minimal sample (B), `record_il.launch`, offline loader. | **Done.** A recorded sim session loads and passes the automatic checks (`il_tools/il_check_session`). |
-| 2 | Pilot: ten minutes of collection. Measure tie rate, switch rate, trivial-tick fraction, identity lifetimes, cursor liveness. | Thresholds and D2 are decided from data. **Open (needs an operator).** `il_check_session` reports decisions and choice ticks; tie margins and cursor distances are in every candidate. |
+| 2 | Pilot: ten minutes of collection. Measure tie rate, switch rate, trivial-tick fraction, identity lifetimes, cursor liveness. | Thresholds and D2 are decided from data. **In progress.** Pilot runs (`~/run_il_pilot.sh`, benchmark suite `50ped_daniel.yaml`, data root `/home/abdel/il_data`) led to fixes 37–45; D2 is decided (fix 43). Thresholds and reaction lag are still to be set. `il_check_session` reports decisions and choice ticks; tie margins and cursor distances are in every candidate. |
 | 3 | Cursor work (C): tool and planner. | The checklist in 1.10 passes. **Done in code** (issues 11, 14, 16, 29); the RViz-side items of 1.10 need a run with a real mouse. |
 | 4 | Recording hardening, metadata, replay viewer. Regression run of the autonomous planner. | Benchmark unchanged with manual mode off. **Done** except a full benchmark. Short check (headless, `map1_small`, random scenarios with seed 42, 60 s timeout, 8 min per planner, scored with the fixed metrics): planner at `f27f357` 10 episodes, 2 goal / 5 collision / 3 timeout, 1.50 collisions per episode, mean speed 0.45 m/s; current planner 9 episodes, 2 / 3 / 4, 1.56, 0.46 m/s. No sign of a regression, but too few episodes to call it unchanged. |
 | 5 | Write the protocol; collect. | **Open.** Template: `IL_COLLECTION_PROTOCOL.md`. |
 | 6 | Offline processing and dataset build. | **Tools done** (`il_tools/il_build_dataset`); thresholds and lag from the pilot. |
 
 ## 1.10 Checks before a long session
+
+Superseded by section 3 of `IL_COLLECTION_PROTOCOL.md` (written after fixes
+15 and 40), which is the list to use. The original list is kept below; its
+5 Hz rate and its reset rule ("`cursor_live` false until the mouse moves")
+no longer hold.
 
 - [ ] Samples arrive at 5 Hz with non-empty `candidates` and a goal.
 - [ ] Cursor sim stamp and sample stamp are on the same clock.
@@ -477,7 +539,8 @@ check; the result is in 1.11.
 
 **DG-03 — Three rates** (BLOCKER)
 - *Problem.* Gap detection runs in `laserScanCB` at 25 Hz, selection in the
-  5 Hz planning loop, the cursor at 10 Hz, on different threads.
+  planning loop (10 Hz sim; first written as 5 Hz, see PL-15), the cursor at
+  10 Hz wall, on different threads.
 - *Effect.* A sample is only well defined at the planning tick; anything
   else needs an offline three-way join.
 - *Fix.* Define and stamp the sample at the tick; copy scan and gaps
@@ -545,6 +608,9 @@ check; the result is in 1.11.
 - *Problem.* After a reset the tool resends the old point within 100 ms,
   undoing any clearing in the planner.
 - *Fix.* Ignore the cursor until `last_move_wall` is later than the reset.
+- *As implemented.* Not ignored: the tool re-projects the held screen point
+  every publish (PL-29), so after the teleport it is again what is under the
+  mouse; reset ticks are excluded by `in_reset_window`.
 
 **DG-05 — No abstain and no gate** (HIGH)
 - *Problem.* The nearest-candidate search (`:869-890`) has no threshold.
@@ -586,6 +652,9 @@ check; the result is in 1.11.
   the "record facts, filter offline" principle, and `HELD` relied on
   unverified ID stability.
 - *Fix.* Flag only; behaviour changes at reset alone.
+- *Later.* Clean data did need behaviour changes: hold still without a
+  selection (PL-16, PL-37) and a sticky selection (PL-43). No timeout or
+  distance gate was added.
 
 ## 2.4 What the label means
 
@@ -604,6 +673,8 @@ check; the result is in 1.11.
   no mouse movement behind them (possible via `last_move_wall`).
 - *Fix.* Version 1 keeps hover-nearest and filters offline; decide D2 after
   the pilot.
+- *Outcome.* Hover-nearest switched gaps about every second tick, so D2 was
+  decided before the pilot: direction cone plus a sticky switch (PL-43).
 
 **DG-09 — Reaction lag unmodelled** (HIGH)
 - *Problem.* The cursor reflects an earlier rendered frame plus human
@@ -767,7 +838,10 @@ check; the result is in 1.11.
 
 ---
 
-# System map (for reference, at the pinned commits)
+# System map (as implemented, 2026-10-22)
+
+Full version with rates, topics and parameters: `COMPLETE_OVERVIEW_IL_DOC.md`
+(I.3–I.10, appendix B).
 
 **Producer — `arena/arena-rosnav/utils/plugins/rviz_plugins/src/continuous_gap_selection_tool.cpp`**
 
@@ -783,12 +857,19 @@ check; the result is in 1.11.
 
 - `/man_gap` rosparam gates `manualSelectionMode_` (default off, issue 06;
   set by `arena_bringup/launch/start_trials.launch`).
-- `cursorCB` transforms the cursor from its own frame to odom (issue 29).
+- `/man_gap_max_bearing_deg` (60) and `/man_gap_switch_ratio` (0.7) set the
+  selection rule (issue 43).
+- `cursorCB` transforms the cursor from its own frame to odom (issue 29); the
+  last known cursor is held until `tool_active = false` (issue 40).
 - Gap detection, association and estimation run in `laserScanCB`.
 - `runPlanningLoop` (manual mode): `selectManualTrajectory` builds the one
-  candidate list, selects from the cursor or click-to-move and fills the
-  sample; then `publishManualCandidateMarkers`; a `ManualGapSample` is
-  published on `<ns>/manual_gap_sample` on every return path (fixes A, B).
+  candidate list, selects from click-to-move or the cursor (direction cone,
+  nearest terminal point, sticky switch; issue 43) and fills the sample; then
+  `publishManualCandidateMarkers`; a `ManualGapSample` is published on
+  `<ns>/manual_gap_sample` on every return path (fixes A, B). Nothing
+  selected → zero velocity (issues 16, 37).
+- Control is holonomic (`holonomic: true` in simulation-setup
+  `configs/mbf/local/dgap_local_planner_params.yaml`, issue 44).
 - Recording: `arena_bringup/launch/record_il.launch` (fix D, issue 07);
   offline: `il_tools/`.
 
@@ -799,6 +880,8 @@ check; the result is in 1.11.
 | Laser scan | 25 Hz | `rto/model_params.yaml:39` |
 | Planning loop | 10 Hz configured, ≈9 Hz measured in sim (PL-15) | `configs/mbf/move_base_params.yaml:10` |
 | Cursor | 10 Hz wall clock | `continuous_gap_selection_tool.cpp` (`createWallTimer`) |
+| Odometry | 50 Hz | `rto.model.yaml:25` |
+| Global path replan (NavfnROS) | 5 Hz | `move_base_params.yaml:6` |
 
 Scan: 512 beams, ±pi, `max_range` 5.0 m.
 
@@ -868,6 +951,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-41 | MED | Pedestrian speed not settable at launch; pedsim steps in wall time (open) | arena-rosnav | Fixed `5605de45b` (argument), [doc](il_pipeline_fixes/41-pedestrian-speed-argument.md) |
 | PL-42 | LOW | No robot-to-goal cue for the operator (line only in an uncommitted stash) | dynamic_gap | Fixed `ac447be`, [doc](il_pipeline_fixes/42-goal-line.md) |
 | PL-43 | HIGH | Selected gap switches too often (close calls flip back and forth); gaps pointing away from the cursor get selected | dynamic_gap, arena-rosnav | Fixed `3c2ef1c`, arena-rosnav `2b1ecdea2` (arguments), [doc](il_pipeline_fixes/43-directional-sticky-selection.md) |
+| PL-44 | MED | dgap ran non-holonomic on the holonomic rto (heading turned, no strafing) | simulation-setup | Fixed `7c1f551` (simulation-setup), [doc](il_pipeline_fixes/44-holonomic.md) |
 | PL-45 | LOW | Ticks without planning (not ready, colliding, no gaps) recorded selected_idx 0 instead of -1 | dynamic_gap | Fixed `8d75c2a`, [doc](il_pipeline_fixes/45-early-return-selected-idx.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
@@ -888,7 +972,7 @@ From `IL_MODEL_AND_DATA_DESIGN.md`. All open.
 | M-06 | MED | `cursor_live` cannot tell watching from intervening |
 | M-07 | MED | The frozen GRU checkpoint is not pinned |
 | M-08 | MED | Design pools 360 beams; the scan has 512 |
-| M-09 | LOW | Policy rate 10 Hz vs planner tick 5 Hz |
+| M-09 | LOW | Policy rate 10 Hz vs planner tick 5 Hz. The tick is 10 Hz (PL-15), so the rates already match; keep the deployment rate a separate setting |
 
 Decisions D8–D11 (teleop or cursor-only, record DynamicGap's pick, a
 safety-checks-on condition, which GRU) are open; see the design doc.
@@ -908,6 +992,13 @@ safety-checks-on condition, which GRU) are open; see the design doc.
 | `time_in_personal_space` and the gaze totals in `PedsimMetrics` are cast to integers, truncating seconds | metrics review | Open |
 | `arena_bringup` is a git repo nested in arena-rosnav (both track its files); `versions.yaml` records both | PL-07 work | Noted |
 | In a manual sim run (fake cursor), mbf stopped calling the planner 22 s before the episode's timeout, 2.9 m from the goal; `NavfnROS/plan` had published only empty plans since the episode began. mbf output is not captured (robot nodes are started by the task generator), so the abort reason is unknown. The episode outcome is still right (duration from `episodes.csv`), but such episodes have a stretch without samples | e2e2 session, review of PL-07 | Open (investigate: capture mbf logs) |
+| The candidate-number display (`/rto/manual_candidate_markers`) is `Enabled: false` in `arena.rviz` (`:786-788`), so the operator sees no numbers or green highlight unless they turn it on; `view.rviz` is copied at start, so a display toggled during a session is not recorded | overview review | Open (decision: enable in `arena.rviz`) |
+| Pedsim steps on wall time while the robot runs on sim time, so pedestrians move faster than `vmax` relative to the robot when the sim runs below real time (~2.6× at RTF 0.37) | PL-41 work | Open; fix belongs in pedsim_ros |
+| RViz segfaults (exit -11, NVIDIA 470 GL); cursor messages stop and the last selection is held. `rviz_prefix` (gdb) is not passed to benchmark relaunches | pilot runs | Open, not caused by the tool |
+| Random starts on `map1_small` can spawn the robot in collision: every tick `COLLIDING`, robot holds still | pilot runs | Workaround: a benchmark suite with fixed starts (`50ped_daniel.yaml`) |
+| Gap switches with the mouse still (near-ties; association can pass an ID to a nearby edge) | pilot runs | Reduced by PL-43; recheck in the pilot |
+| `ManualGapSample.msg` comment says `cursor_live` needs a "recent" message; since PL-40 there is no age check | PL-40 work | Open (comment to update) |
+| `il_check_session`'s "selection reproducible" check recomputed plain nearest-feasible (`il_bags.nearest_feasible`), not the PL-43 rule (cone + sticky switch), so it failed on every post-43 session (56/385, 119/623 and 55/405 cursor ticks of the three pilot sessions) | doc update 2026-10-22 | Fixed: the check replays the PL-43 rule with the parameters from `params.yaml` (`il_bags.selection_mismatches`); 0 mismatches on all six pilot sessions, [doc](il_pipeline_fixes/il-offline-tools.md) |
 
 # Unfiled / new issues
 

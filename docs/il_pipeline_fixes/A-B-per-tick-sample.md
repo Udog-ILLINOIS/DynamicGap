@@ -17,7 +17,7 @@ Plan sections 1.3 (fix A) and 1.4 (fix B) of `IL_DATA_COLLECTION_PLAN.md`. Close
 **Fix A — one candidate list** (`selectManualTrajectory`):
 - One entry per gap tube, in tube order, infeasible ones included. `traj_idx` = tube index; `display_id` = dense number over feasible (shown) candidates, -1 otherwise (`denseDisplayIds`).
 - Identity: the left/right point estimator IDs of the tube's first gap; bearing of the gap centre as a second cue.
-- The same list is drawn (`publishManualCandidateMarkers`), selected from (`nearestCandidate` on terminal poses, feasible only), and recorded. The selected index is the position in this list.
+- The same list is drawn (`publishManualCandidateMarkers`), selected from (`nearestCandidate` on terminal poses, feasible only; since issue 43 restricted to the cursor's direction and sticky, see 43), and recorded. The selected index is the position in this list.
 
 **Fix B — one sample per tick** on `/rto/manual_gap_sample` (manual mode only):
 - Published on every return path of `runPlanningLoop` (a scope guard), with `status` = PLANNED, NOT_READY, COLLIDING or NO_GAPS; `tick_seq` increments every tick.
@@ -25,7 +25,7 @@ Plan sections 1.3 (fix A) and 1.4 (fix B) of `IL_DATA_COLLECTION_PLAN.md`. Close
 - Cursor: the last `CursorState` verbatim, its wall-clock receipt time, the odom point used, `cursor_valid` (usable, issue 29), `cursor_live` (usable, `pick_ok`, and the point was transformed to odom). On ticks that reach selection these are recorded inside `selectManualTrajectory` under the same lock as the selection, so a cursor message arriving later in the tick cannot change them.
 - Choice: `source` (NONE, GAP_CURSOR, CLICK_TO_MOVE), `selected_idx`, selected model IDs, click target, `hold_still`.
 - Episode: `episode_id` from `/scenario_reset`; `in_reset_window` while a reset is in progress (`/scenario_reset_begin` id ahead of `/scenario_reset`) and for 1 s wall time after it (`isInResetWindow`).
-- A tick is a usable expert label when `source == SOURCE_GAP_CURSOR && cursor_live && !in_reset_window`.
+- A tick is a usable expert label when `source == SOURCE_GAP_CURSOR && cursor_live && !in_reset_window && selected_idx >= 0` (`il_bags.is_usable_label`; ticks that end before selection record `selected_idx = -1`, issue 45).
 
 **Reset** (manual mode, plan P4 / R-26): on `/scenario_reset` the planner drops the previous gaps and their estimators (no inheritance across the teleport) and the click-to-move state. The stored selection, current trajectory and current model IDs belong to the planning thread; the callback only sets a flag and `selectManualTrajectory` clears them at the start of the next tick, so the callback never writes `currentTraj_` while a tick reads it. The chosen trajectory is copied inside `selectManualTrajectory`, under its lock. The cursor itself is not cleared: the tool re-projects the screen point after the teleport, and a still mouse keeps its selection.
 

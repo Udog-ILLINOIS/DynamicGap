@@ -6,6 +6,8 @@ Oct 17, 2026 · Ewan
 
 Use Mixture-of-Gaussians BC over short waypoint trajectories, trained on human demonstrations, then improve it with HG-DAgger using Sirius/IWR-style weighting of intervention samples. Feed it LiDAR + the GRU's tracked positions and velocities (not the Kalman filter's), goal and ego velocity, and do not feed back the last command. Two preconditions are not met today: no teleop data exists, and the GRU does not run inside the planner.
 
+**Update (2026-10-22, dynamic_gap `5ecc15a`).** The data-collection plan's fixes A–D are built: every manual-mode planning tick publishes a `ManualGapSample` (candidates, choice, cursor, goal, scan), sessions are recorded with `record_il:=true`, and `il_tools/il_build_dataset` builds the Alternative 1 dataset. Facts below that changed since this design was written: the planner tick is 10 Hz (≈9 Hz measured), not 5 Hz; the robot drives **holonomic** since fix 44 (strafes, heading fixed, `angular.z = 0`); manual selection uses a direction cone plus a sticky switch (fix 43), not plain nearest-endpoint. Still missing for the MoG route: GRU online (M-02), teleop (M-01), DynamicGap's pick (M-03), HG-DAgger infrastructure (M-05). The current system is described in `COMPLETE_OVERVIEW_IL_DOC.md`.
+
 **Review finding (added 2026-10-17).** The current data-collection plan cannot produce this dataset yet. Confirmed: no teleop data exists (every human run is a cursor gap selection), and the GRU does not run inside the planner; it has only been trained and evaluated offline. The gap-selection hybrid (Alternative 1) is what the existing plan already logs; the MoG waypoint model needs extra recording work listed in the next two sections.
 
 The five concepts are two separate choices, not five alternatives:
@@ -30,17 +32,17 @@ Two alternatives were also evaluated. A gap-conditioned hybrid (pick the gap, th
 
 ## Review against the IL data-collection plan
 
-The current plan (`dynamic_gap/docs/IL_DATA_COLLECTION_PLAN.md`, 2026-10-07) already logs nearly everything Alternative 1 needs. The recommended MoG + HG-DAgger route needs four things it does not cover: GRU tracks at run time, teleop or takeover commands, DynamicGap's own pick, and a control-ownership record. Checked against `dynamic_gap` at `f27f357`; no fix from the plan has been implemented yet.
+The current plan (`dynamic_gap/docs/IL_DATA_COLLECTION_PLAN.md`, 2026-10-07) already logs nearly everything Alternative 1 needs. The recommended MoG + HG-DAgger route needs four things it does not cover: GRU tracks at run time, teleop or takeover commands, DynamicGap's own pick, and a control-ownership record. Checked against `dynamic_gap` at `f27f357`, when no fix from the plan had been implemented. Status column updated 2026-10-22 (`5ecc15a`).
 
 | Design needs | Current plan | Status |
 | --- | --- | --- |
-| Every candidate gap, the chosen index, the cursor and the best-vs-second margin | `ManualGapSample` with `candidates[]`, `selected_idx`, per-candidate `cursor_dist` / `cursor_bearing_diff` (Fix A, B) | Covered once built (DG-01, DG-02, DG-13, DG-14) |
-| Association IDs so labels survive renumbering | Left/right model-ID pair + bearing per candidate | Covered (DG-15, R-21) |
-| Goal (distance, sin, cos) | `goal_robot_frame`, `local_waypoint_robot_frame` | Covered (R-10) |
-| Ego (v, ω) | `robot_vel` | Covered |
-| LiDAR | Full `scan` in each sample | Covered, but the scan is 512 beams over ±π, not 360; pooling to 90–180 bins must use 512 |
-| Future odometry poses for waypoint labels | `odom` and `/tf` in the bag | Covered; labels are built offline |
-| Episode outcome | Planned (R-13) | Covered once built |
+| Every candidate gap, the chosen index, the cursor and the best-vs-second margin | `ManualGapSample` with `candidates[]`, `selected_idx`, per-candidate `cursor_dist` / `cursor_bearing_diff` (Fix A, B) | **Built** (DG-01, DG-02, DG-13, DG-14) |
+| Association IDs so labels survive renumbering | Left/right model-ID pair + bearing per candidate | **Built** (DG-15, R-21) |
+| Goal (distance, sin, cos) | `goal_robot_frame`, `local_waypoint_robot_frame` | **Built** (R-10) |
+| Ego velocity | `robot_vel` (robot frame) | **Built**; holonomic since fix 44, so (vx, vy) with ω = 0 rather than (v, ω) |
+| LiDAR | Full `scan` in each sample | **Built**, but the scan is 512 beams over ±π, not 360; pooling to 90–180 bins must use 512 |
+| Future odometry poses for waypoint labels | `odom` (50 Hz) and `/tf` in the bag | Recorded; labels are not built yet (`il_build_dataset` builds gap-index labels only) |
+| Episode outcome | Planned (R-13) | **Built** offline: `il_bags.episode_outcomes` (`GOAL_REACHED`, `TIMEOUT`, `ABORTED`, collision flag) |
 | GRU tracked positions and velocities | Not recorded; candidate `model_vel` comes from the Kalman filter | **Missing** |
 | DynamicGap's own pick and costs | Dropped from v1 (D4, R-01) | **Missing**, and needed for Alternative 1's go/no-go |
 | Human (v, ω) teleop commands | No teleop path; only cursor gap selection exists | **Missing** |
@@ -50,10 +52,10 @@ The current plan (`dynamic_gap/docs/IL_DATA_COLLECTION_PLAN.md`, 2026-10-07) alr
 **Where the two disagree**
 
 1. **No teleop data exists (confirmed).** The design assumes human (v, ω) demos. Every human run so far is cursor gap selection, where DynamicGap generates and tracks the trajectory. Odometry waypoint labels from those runs imitate DynamicGap's generator steered by human gap choice; speed and timing come from the generator, not the human. That weakens the design's case against output option D, and the design itself notes the cursor gave no speed control.
-2. **D4 must flip for Alternative 1.** Its first test is "how often did the human disagree with DynamicGap's pick". In manual mode `pickTraj` and the whole comparison block are skipped (`Planner.cpp:2149-2192`), so that pick does not exist. Recording it needs a side-effect-free scoring call (R-01).
-3. **Turning safety checks on changes robot behaviour.** The design wants human runs with `changeTrajectory()` enabled; the plan's principle is not to change behaviour. Make it a separate collection condition, flagged in every sample.
+2. **D4 must flip for Alternative 1.** Its first test is "how often did the human disagree with DynamicGap's pick". In manual mode `pickTraj` and the whole comparison block are skipped (`Planner.cpp:2149-2192` at `f27f357`), so that pick does not exist. Recording it needs a side-effect-free scoring call (R-01). Still true at `5ecc15a`.
+3. **Turning safety checks on changes robot behaviour.** The design wants human runs with `changeTrajectory()` enabled; the plan's principle is not to change behaviour. Make it a separate collection condition, flagged in every sample. (The plan has since accepted other behaviour changes in manual mode: hold still without a selection, fixes 16/37, and a sticky selection, fix 43. The sticky switch is a form of hysteresis, so M-04's "no hysteresis" no longer holds for new sessions.)
 4. **The GRU does not run inside the planner (confirmed).** No planner code calls it. The only launch entry (`mbf_dgap.launch:25-45`) is commented out, points at another user's home directory, loads a pedestrian-density model rather than the velocity model, and its script `gru_gap_feature_node.py` is not in this checkout. The velocity GRUs exist only as `.pt` files in `ml_gap_velocity/models/` (sequence lengths 8 and 15).
-5. **Rates.** The design runs the policy at 10 Hz; the planner ticks at 5 Hz. Samples recorded at the 5 Hz tick are fine for training, but the deployment loop needs its own rate.
+5. **Rates.** The design runs the policy at 10 Hz. The planner tick was thought to be 5 Hz; it is 10 Hz configured (`move_base_params.yaml`), ≈9 Hz measured (plan PL-15), so the rates already match. The deployment loop should still have its own rate setting.
 
 **Where they agree.** The design's 1–2 s pre-takeover drop and the plan's reaction-lag shift (DG-09) are the same idea and both need the wall-clock stamps the plan adds (R-14). Soft labels from cursor distance and up-weighting gap switches use fields the plan already records (R-23, R-29). Splitting by episode matches R-31.
 
@@ -71,7 +73,7 @@ This design adds nine issues and four decisions to the plan's register. They use
 | M-06 | MED | With a model driving, `cursor_live` cannot tell "watching" from "intervening" | Add an explicit takeover toggle to the RViz tool and to `CursorState` |
 | M-07 | MED | The frozen GRU is not pinned: several `.pt` files with sequence length 8 or 15, and the launch file names a density model | Pick one model; record its file hash in `versions.yaml` |
 | M-08 | MED | The design pools 360 beams; the robot's scan has 512 | Pool 512 beams; record the pooling in the dataset config |
-| M-09 | LOW | The policy is meant to run at 10 Hz; the planner ticks at 5 Hz | Set the deployment rate separately from the sample rate |
+| M-09 | LOW | The policy is meant to run at 10 Hz; the planner ticks at 5 Hz. *Correction: the tick is 10 Hz (PL-15), so the rates match.* | Set the deployment rate separately from the sample rate |
 
 **Decisions to add**
 
@@ -86,7 +88,7 @@ This design adds nine issues and four decisions to the plan's register. They use
 
 The recommendation rests on these facts from earlier work; correct any that are out of date.
 
-- **Planner:** DynamicGap (arXiv 2509.07239), a gap-based local planner for a non-holonomic robot in dense pedestrian scenes, run in Arena on ROS Noetic with a 2D LiDAR.
+- **Planner:** DynamicGap (arXiv 2509.07239), a gap-based local planner for dense pedestrian scenes, run in Arena on ROS Noetic with a 2D LiDAR (512 beams, ±π, 5 m). The simulated robot (rto) is holonomic; dgap ran it as non-holonomic until fix 44 (2026-10-22), and now strafes with a fixed heading.
 - **Why IL:** with the real-time manual trajectory selection tool, success was about 80%, versus 50–60% for the automated planner. The gap is in decision-making, not task difficulty. (See M-04: that 80% was measured without `changeTrajectory()` checks.)
 - **Velocity estimation:** the Kalman filter hallucinated velocity on static objects and missed it in dense clusters. The GRU (15-frame history; inputs = KF tracked point positions + raw LiDAR) replaced its velocity step and cut collisions from about 50% to 10%. It does not run inside the planner; using it online needs a GRU node (M-02).
 - **Goal for this step:** a continuous planner that outputs motion directly, acting more as a planner than a low-level controller.
@@ -355,12 +357,12 @@ Output a short trajectory of waypoints, not a single cmd\_vel: it makes the mode
 | --- | --- | --- |
 | A. cmd\_vel | Simplest; labels straight from /cmd\_vel; trivial HG-DAgger labels | Controller, not planner; noisy, lagged labels; per-step modes dither; weakest against compounding error |
 | B. cmd\_vel chunks | Commits to a short plan; smoother | Open-loop in velocity, so position drifts; hard to collision-check; ensembling blurs left and right |
-| C. Waypoints + tracker | Genuinely planning; clean odometry labels; mixture over whole trajectories; each mode checkable; reuses DynamicGap's trajectory controller | Tracker to tune; tracking lag; may need projection to be feasible for a differential drive; degenerate labels when stopped |
+| C. Waypoints + tracker | Genuinely planning; clean odometry labels; mixture over whole trajectories; each mode checkable; reuses DynamicGap's trajectory controller | Tracker to tune; tracking lag; degenerate labels when stopped (feasibility projection for a differential drive is not needed on the holonomic rto) |
 | D. Subgoal to DynamicGap | Keeps DynamicGap's safety logic; smallest learning problem | Limited to DynamicGap's generator; throws away timing and speed; ambiguous labels |
 
 **Diagnostics.** Average and final displacement error on held-out bags; minimum error over the K modes and how often each mode wins; plan-versus-odometry tracking error; jerk; fraction of modes in collision; mode-switch rate; closed-loop success, collision and timeout in Arena.
 
-**Verdict.** Option C with a whole-trajectory MoG head. DynamicGap's TrajectoryController already tracks a PoseArray with a non-holonomic lookahead law, so the top mode can be published straight into it. Keep D as an ablation baseline and A only for debugging.
+**Verdict.** Option C with a whole-trajectory MoG head. DynamicGap's TrajectoryController already tracks a PoseArray with a lookahead law (holonomic since fix 44: constant speed towards the lookahead pose, then the projection operator), so the top mode can be published straight into it. Keep D as an ablation baseline and A only for debugging.
 
 **Review note.** D's main con ("throws away timing and speed") only holds if the demos contain human timing and speed. Cursor-selection demos do not (see the review section), so on today's data C and D learn from the same speed signal.
 
@@ -385,6 +387,13 @@ Viable as a gap-selection model; Marginal for its continuous sub-head. It imitat
 
 - The labels are not recorded. Cursor mode picks the candidate whose end pose is nearest the cursor and sets it directly (`getCursorSelectedTrajectory`, `Planner.cpp:854`). This is DG-01/DG-02 in the plan.
 - Manual mode bypasses the trajectory comparison block that holds the feasibility, lifespan and cost-comparison switching logic: the manual branch returns at `Planner.cpp:2183` before it. It also skips `pickTraj`, so DynamicGap's own choice is never computed (M-03). The 80% was achieved without that safety layer and with no hysteresis (M-04).
+
+**Status at `5ecc15a` (2026-10-22).**
+
+- Labels are recorded: `selectManualTrajectory` builds one candidate list per tick, selects from it and publishes a `ManualGapSample` with `selected_idx` (fixes A, B). `il_tools/il_build_dataset` writes this model's dataset (per-candidate features, label index, split by episode).
+- The selection rule is a direction cone (±60°) plus a sticky switch (0.7 distance ratio, fix 43), so new labels have hysteresis. The inference switch rule in step 5 below should be compared with it.
+- Still true: manual mode skips `pickTraj` and the comparison block (M-03, M-04), so DynamicGap's pick and costs are not recorded, and "is current" is not a per-candidate field (it can be derived from the previous tick's selected model IDs).
+- The 80% / 50–60% success figures came from the `arena_evaluation` metrics before fix 03, which could count a timeout as a success; treat them as unreliable until re-measured.
 
 **How it would be built here.**
 
@@ -451,7 +460,7 @@ Marginal now; Viable as the planned upgrade. It fits the output format and safet
 
 ## Final spec, ablation plan, next steps
 
-Build one model, MoG BC over 2 s waypoint trajectories from LiDAR + GRU tracks + goal + ego velocity, then run HG-DAgger on it. The dimension choices below are engineering defaults, not values from a single paper. Before step 1 can run, the data-collection plan's Phase 1 must land, plus M-02 (GRU online) and D8 (teleop or cursor-only).
+Build one model, MoG BC over 2 s waypoint trajectories from LiDAR + GRU tracks + goal + ego velocity, then run HG-DAgger on it. The dimension choices below are engineering defaults, not values from a single paper. Before step 1 can run, the data-collection plan's Phase 1 must land (done as of 2026-10-22), plus M-02 (GRU online) and D8 (teleop or cursor-only), both still open.
 
 **Input (per step, robot frame, normalized)**
 
@@ -459,7 +468,7 @@ Build one model, MoG BC over 2 s waypoint trajectories from LiDAR + GRU tracks +
 | --- | --- | --- |
 | LiDAR | 512 beams min-pooled to 90 (or 180) bins, clipped, scaled to \[0, 1\]; 1D CNN | 90–180 |
 | Goal / next waypoint | distance, sin θ, cos θ | 3 |
-| Ego velocity (odometry) | (v, ω), 30–50% dropout + small noise | 2 |
+| Ego velocity (odometry) | (v, ω), 30–50% dropout + small noise; on the holonomic rto (fix 44) use (vx, vy), ω is 0 | 2 |
 | GRU tracks (frozen) | 6 nearest points × (x, y, vx, vy, valid), sorted by distance, zero-padded; per-track MLP + pooling; whole branch dropped on 25–50% of samples | 30 |
 | Optional DynamicGap gaps | 2 best gaps × endpoint (x, y) | 8 |
 | Previous cmd\_vel | Excluded | 0 |
