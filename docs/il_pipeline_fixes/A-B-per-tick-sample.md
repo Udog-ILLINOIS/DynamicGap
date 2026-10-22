@@ -21,13 +21,13 @@ Plan sections 1.3 (fix A) and 1.4 (fix B) of `IL_DATA_COLLECTION_PLAN.md`. Close
 
 **Fix B — one sample per tick** on `/rto/manual_gap_sample` (manual mode only):
 - Published on every return path of `runPlanningLoop` (a scope guard), with `status` = PLANNED, NOT_READY, COLLIDING or NO_GAPS; `tick_seq` increments every tick.
-- Observation: the scan the gaps were computed from (copied under `gapMutex_` together with the gaps), its stamp, robot pose (odom) and velocity, goal and local waypoint in the robot frame, all candidates with geometry, estimator states, gap goal, terminal pose, downsampled path (every 5th pose and the last), and cursor distance and bearing difference.
-- Cursor: the last `CursorState` verbatim, its wall-clock receipt time, the odom point used, `cursor_valid` (usable, issue 29), `cursor_live` (usable and `pick_ok`).
+- Observation: the scan the gaps were computed from (copied under `gapMutex_` together with the gaps), its stamp, robot pose (odom) and velocity, goal (transformed with this tick's odom→robot transform) and local waypoint in the robot frame, all candidates with geometry, estimator states, gap goal, terminal pose, downsampled path (every 5th pose and the last), and cursor distance and bearing difference.
+- Cursor: the last `CursorState` verbatim, its wall-clock receipt time, the odom point used, `cursor_valid` (usable, issue 29), `cursor_live` (usable, `pick_ok`, and the point was transformed to odom). On ticks that reach selection these are recorded inside `selectManualTrajectory` under the same lock as the selection, so a cursor message arriving later in the tick cannot change them.
 - Choice: `source` (NONE, GAP_CURSOR, CLICK_TO_MOVE), `selected_idx`, selected model IDs, click target, `hold_still`.
 - Episode: `episode_id` from `/scenario_reset`; `in_reset_window` while a reset is in progress (`/scenario_reset_begin` id ahead of `/scenario_reset`) and for 1 s wall time after it (`isInResetWindow`).
 - A tick is a usable expert label when `source == SOURCE_GAP_CURSOR && cursor_live && !in_reset_window`.
 
-**Reset** (manual mode, plan P4 / R-26): on `/scenario_reset` the planner drops the previous gaps and their estimators (no inheritance across the teleport), the click-to-move state, the stored selection and the current trajectory. The cursor itself is not cleared: the tool re-projects the screen point after the teleport, and a still mouse keeps its selection.
+**Reset** (manual mode, plan P4 / R-26): on `/scenario_reset` the planner drops the previous gaps and their estimators (no inheritance across the teleport) and the click-to-move state. The stored selection, current trajectory and current model IDs belong to the planning thread; the callback only sets a flag and `selectManualTrajectory` clears them at the start of the next tick, so the callback never writes `currentTraj_` while a tick reads it. The chosen trajectory is copied inside `selectManualTrajectory`, under its lock. The cursor itself is not cleared: the tool re-projects the screen point after the teleport, and a still mouse keeps its selection.
 
 ## Effects
 - Autonomous mode: no sample publisher, no change in behaviour (the candidate list is only built in manual mode).
@@ -35,7 +35,7 @@ Plan sections 1.3 (fix A) and 1.4 (fix B) of `IL_DATA_COLLECTION_PLAN.md`. Close
 - `ungap_would_apply` / `idle_would_apply` are reserved and always false (ungap and idling generation are disabled, PL-31).
 
 ## Test
-`test/test_manual_selection.cpp`: display ids, nearest feasible candidate (ties to the lower index), cursor freshness, reset window, path downsampling, the scope guard firing on every return, the reset clearing manual state (and not in autonomous mode). The sim smoke test checks that samples arrive with contiguous `tick_seq`, that cursor selections are recorded, and that recomputing the nearest endpoint from the recorded cursor and candidates reproduces `selected_idx` on every cursor tick.
+`test/test_manual_selection.cpp`: display ids, nearest feasible candidate (ties to the lower index), cursor freshness, reset window, path downsampling, the scope guard firing on every return, the reset clearing manual state (and not in autonomous mode); `selectManualTrajectory` on three candidates (one infeasible): selected index, display ids, cursor distances, recorded cursor, chosen trajectory and lifespan; no cursor → no selection; a reset applied at the next tick; a cursor whose transform failed is used but not live. The sim smoke test checks that samples arrive with contiguous `tick_seq`, that cursor selections are recorded, and that recomputing the nearest endpoint from the recorded cursor and candidates reproduces `selected_idx` on every cursor tick.
 
 ```
 cd $OV && catkin build --no-status dynamic_gap rviz_plugins --catkin-make-args run_tests && catkin_test_results build/dynamic_gap && catkin_test_results build/rviz_plugins

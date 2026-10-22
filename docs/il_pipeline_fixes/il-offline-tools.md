@@ -1,0 +1,49 @@
+# IL offline tools — bag checks, dataset build, replay viewer
+
+**Status:** Done · **Repo(s):** dynamic_gap · **Files:** `il_tools/il_bags.py`, `il_tools/il_dataset.py`, `il_tools/il_check_session`, `il_tools/il_build_dataset`, `il_tools/il_replay_viewer`, `il_tools/test/test_il_tools.py`
+**Behaviour change:** None (offline tools).
+
+Plan sections 1.6 (automatic checks), 1.7 (offline processing) and R-38 (looking at the labels). They read the session folders written by `record_il.launch` (issue 07) and need only `rosbag` and the generated `manual_gap_msgs` Python messages.
+
+## il_check_session
+```
+il_tools/il_check_session SESSION_DIR [...] [--namespace rto] [--yaml results.yaml]
+```
+Runs the checks of plan 1.6 and exits with 1 if one fails:
+- bags present, no `.bag.active` files;
+- `tick_seq` contiguous (a planner restart, where it starts again at 0, is reported but not a failure);
+- recomputing the nearest feasible terminal pose from the recorded cursor and candidates gives `selected_idx` on every `SOURCE_GAP_CURSOR` tick;
+- one clock: the cursor stamp is within 5 s of the sample stamp, and stamps do not go backwards within an episode;
+- every episode in `episodes.csv` has samples and an outcome (the last episode may still be running).
+
+It prints a report in decisions rather than ticks (plan 1.7): ticks, usable label ticks (`source == GAP_CURSOR && cursor_live && !in_reset_window`), decisions (changes of the selected gap identity between usable ticks with mouse movement in between), usable ticks with more than one feasible candidate, click-to-move and hold-still ticks, and episode results.
+
+Episode outcome: `GOAL_REACHED` if the goal (robot frame) at the episode's last tick is within the goal radius plus the distance covered in one 0.5 s goal check, `TIMEOUT` if the episode lasted the task timeout (within 1 s), else `ABORTED`; `collision` if any scan range came within the robot radius + 1 cm. Goal radius and timeout come from `params.yaml` (`task_generator_server`).
+
+## il_build_dataset
+```
+il_tools/il_build_dataset --out DIR [--lag S] [--max-cursor-dist M] [--max-bearing-diff RAD]
+                          [--min-tie-margin M] [--keep-collision-episodes] [--seed S] SESSION_DIR [...]
+```
+Writes `train/val/test.jsonl.gz` (one example per line) and `dataset.yaml` (options, counts, per-session reports). For each usable label tick t:
+- thresholds (from the pilot): cursor distance and bearing difference to the selected candidate, and the margin to the second-nearest candidate;
+- reaction lag (DG-09): the observation is the latest tick of the same episode at least `--lag` seconds of wall time before t; the label is the index, in that tick's candidates, of the gap with the same identity (left and right model ids) as the one selected at t; if the gap does not exist there the example is dropped;
+- collision episodes are dropped (or kept and tagged with `--keep-collision-episodes`);
+- splits are by episode, deterministic from a hash of session, episode and seed (default 80/10/10); never by tick.
+
+An example holds the scan, robot velocity and pose, goal and local waypoint (robot frame), every candidate's geometry, estimator states, gap goal, terminal pose and path, and the label.
+
+## il_replay_viewer
+```
+rosbag play --clock SESSION_DIR/session_*.bag
+il_tools/il_replay_viewer _namespace:=rto
+```
+Publishes `/il_replay/markers`: candidate paths (grey), the selected one (green if the tick is a usable label, orange otherwise), the cursor point (blue if live), and a line with episode, tick, source and flags.
+
+## Test
+`il_tools/test/test_il_tools.py` writes synthetic sessions with rosbag: a good session passes every check; split bags are read in order; a missing tick, a wrong label, a wall-clock cursor stamp, a `.bag.active` file and an episode without samples are each detected; collisions are flagged per episode. The dataset tests check labels, pairing by identity under a lag when the candidate order changes, dropping of lost identities, unusable ticks, thresholds and collision episodes, and that splits are deterministic per episode.
+
+```
+source <workspace>/devel/setup.bash
+cd src/planners/dynamic_gap/il_tools && python3 -m unittest discover -s test -v
+```
