@@ -27,6 +27,7 @@ COLLISION_EPS = 0.01  # m, as arena_evaluation metrics
 
 SOURCE_NONE, SOURCE_GAP_CURSOR, SOURCE_CLICK_TO_MOVE, SOURCE_MODEL = 0, 1, 2, 3
 STATUS_PLANNED = 0
+STATUS_COLLIDING = 2
 CURSOR_FRESH_S = 0.5  # wall s; the tool publishes every 0.1 s, older means it stopped
 
 # manual selection rule (IL fix 43), planner defaults
@@ -278,7 +279,8 @@ def episode_outcomes(samples, params, events=None):
     """Outcome per episode id: GOAL_REACHED if the last pose is within the
     goal radius (plus the distance covered in one goal check), TIMEOUT if the
     episode lasted the task timeout, else ABORTED; collision if the scan came
-    within the robot radius. The duration comes from episodes.csv when it has
+    within the robot radius or the planner reported STATUS_COLLIDING (those
+    ticks carry no scan, so the scan alone misses the contact itself). The duration comes from episodes.csv when it has
     the episode (the planner can stop ticking before the episode ends), else
     from the samples."""
     settings = task_settings(params)
@@ -310,7 +312,8 @@ def episode_outcomes(samples, params, events=None):
             result = "ABORTED"
         outcomes[episode] = {
             "result": result,
-            "collision": min_range <= radius + COLLISION_EPS,
+            "collision": (min_range <= radius + COLLISION_EPS
+                          or any(s.status == STATUS_COLLIDING for s in ticks)),
             "ticks": len(ticks),
             "duration": round(duration, 2),
             "final_goal_distance": round(distance, 2),

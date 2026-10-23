@@ -245,6 +245,15 @@ class CheckTest(SessionTestCase):
         self.assertFalse(outcomes[0]["collision"])
         self.assertTrue(outcomes[1]["collision"])
 
+    def test_colliding_status_flagged(self):
+        # the planner records colliding ticks without a scan
+        samples = self.good_samples()
+        samples[30].status = 2
+        samples[30].scan.ranges = []
+        outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(self.dir))
+        self.assertFalse(outcomes[0]["collision"])
+        self.assertTrue(outcomes[1]["collision"])
+
 
 class DatasetTest(SessionTestCase):
 
@@ -311,7 +320,8 @@ class DatasetTest(SessionTestCase):
         samples[7].in_reset_window = True  # obs of tick 10 at lag 0.25
         samples[8].status = samples[8].STATUS_COLLIDING  # obs of tick 11
         self.write(samples)
-        _, counts = self.build(lag_s=0.25)
+        # a colliding tick makes episode 0 a collision episode; keep it to see the drop
+        _, counts = self.build(lag_s=0.25, drop_collision_episodes=False)
         self.assertEqual(counts["obs_invalid"], 2)
 
     def test_stale_observation_dropped(self):
