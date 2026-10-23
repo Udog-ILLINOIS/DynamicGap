@@ -954,6 +954,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-44 | MED | dgap ran non-holonomic on the holonomic rto (heading turned, no strafing) | simulation-setup | Fixed `7c1f551` (simulation-setup), [doc](il_pipeline_fixes/44-holonomic.md) |
 | PL-45 | LOW | Ticks without planning (not ready, colliding, no gaps) recorded selected_idx 0 instead of -1 | dynamic_gap | Fixed `8d75c2a`, [doc](il_pipeline_fixes/45-early-return-selected-idx.md) |
 | PL-46 | MED | Collision episodes not detected: colliding ticks carry no scan | dynamic_gap | Fixed `a4ceba5`, [doc](il_pipeline_fixes/46-collision-from-status.md) |
+| PL-47 | LOW | Datasets only from whole sessions; no way to pick episodes | dynamic_gap | Fixed `8f5f49f`, [doc](il_pipeline_fixes/47-episode-sets.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
