@@ -315,6 +315,21 @@ class DatasetTest(SessionTestCase):
         _, counts = self.build(drop_collision_episodes=False)
         self.assertEqual(counts["kept"], 40)
 
+    def test_episode_set_selects_and_keeps_collisions(self):
+        samples = self.good_samples()
+        samples[30].scan.ranges = [0.15, 4.0]  # episode 1 collides
+        self.write(samples)
+        set_file = os.path.join(self.dir, "set.yaml")
+        with open(set_file, "w") as f:
+            yaml.safe_dump({"root": os.path.dirname(self.dir),
+                            "episodes": {"corner": [{"session": os.path.basename(self.dir), "episode": 1}]}}, f)
+        selection = il_dataset.load_set(set_file)
+        self.assertEqual(selection, {self.dir: [1]})
+        out = os.path.join(self.dir, "out")
+        summary = il_dataset.build_dataset(list(selection), out, {"splits": {"train": 1.0}}, selection=selection)
+        counts = summary["sessions"][os.path.basename(self.dir)]["counts"]
+        self.assertEqual((counts["not_in_set"], counts["collision_episode"], counts["kept"]), (20, 0, 20))
+
     def test_observation_in_reset_window_or_not_planned_dropped(self):
         samples = self.good_samples()
         samples[7].in_reset_window = True  # obs of tick 10 at lag 0.25

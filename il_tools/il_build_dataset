@@ -2,6 +2,7 @@
 """Build the training set from recorded IL sessions (docs/IL_DATA_COLLECTION_PLAN.md, 1.7).
 
 Usage: il_build_dataset --out DIR [options] SESSION_DIR [SESSION_DIR ...]
+       il_build_dataset --out DIR --set SET_FILE [options]   (only the episodes the set lists)
 Writes DIR/{train,val,test}.jsonl.gz (one example per line) and DIR/dataset.yaml.
 """
 
@@ -17,7 +18,8 @@ import il_dataset  # noqa: E402
 def main():
     d = il_dataset.DEFAULTS
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("sessions", nargs="+")
+    parser.add_argument("sessions", nargs="*")
+    parser.add_argument("--set", help="episode set file; its episodes are kept even if they collided")
     parser.add_argument("--out", required=True)
     parser.add_argument("--namespace", default=None)
     parser.add_argument("--lag", type=float, default=d["lag_s"], help="reaction lag, wall clock seconds")
@@ -28,6 +30,11 @@ def main():
     parser.add_argument("--seed", default=d["seed"])
     args = parser.parse_args()
 
+    selection = il_dataset.load_set(args.set) if args.set else None
+    if selection is not None:
+        args.sessions = list(selection)
+    elif not args.sessions:
+        parser.error("give session folders or --set")
     if os.path.exists(args.out) and os.listdir(args.out):
         sys.exit("output folder {} is not empty".format(args.out))
 
@@ -38,7 +45,7 @@ def main():
         "min_tie_margin": args.min_tie_margin,
         "drop_collision_episodes": not args.keep_collision_episodes,
         "seed": args.seed,
-    }, args.namespace)
+    }, args.namespace, selection)
     for split, counts in summary["splits"].items():
         print("{}: {} examples from {} episodes".format(split, counts["examples"], counts["episodes"]))
     for session, info in summary["sessions"].items():
