@@ -28,7 +28,8 @@ Settings in effect until changed:
 - D3: the robot holds still whenever nothing is selected (fixes 16, 37); a
   still mouse keeps its selection indefinitely, only switching the tool off
   ends it (fix 40).
-- D4: the autonomous planner's pick is not recorded.
+- D4: the autonomous planner's pick and costs are recorded (fix 48,
+  `dg_pick_idx`, `dg_*`), never executed.
 - D6: gaps only.
 - The robot drives holonomic (fix 44): it strafes and keeps its heading.
 

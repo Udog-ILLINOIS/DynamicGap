@@ -6,7 +6,7 @@ Oct 17, 2026 · Ewan
 
 Use Mixture-of-Gaussians BC over short waypoint trajectories, trained on human demonstrations, then improve it with HG-DAgger using Sirius/IWR-style weighting of intervention samples. Feed it LiDAR + the GRU's tracked positions and velocities (not the Kalman filter's), goal and ego velocity, and do not feed back the last command. Two preconditions are not met today: no teleop data exists, and the GRU does not run inside the planner.
 
-**Update (2026-10-22, dynamic_gap `5ecc15a`).** The data-collection plan's fixes A–D are built: every manual-mode planning tick publishes a `ManualGapSample` (candidates, choice, cursor, goal, scan), sessions are recorded with `record_il:=true`, and `il_tools/il_build_dataset` builds the Alternative 1 dataset. Facts below that changed since this design was written: the planner tick is 10 Hz (≈9 Hz measured), not 5 Hz; the robot drives **holonomic** since fix 44 (strafes, heading fixed, `angular.z = 0`); manual selection uses a direction cone plus a sticky switch (fix 43), not plain nearest-endpoint. Still missing for the MoG route: GRU online (M-02), teleop (M-01), DynamicGap's pick (M-03), HG-DAgger infrastructure (M-05). The current system is described in `COMPLETE_OVERVIEW_IL_DOC.md`.
+**Update (2026-10-22, dynamic_gap `5ecc15a`).** The data-collection plan's fixes A–D are built: every manual-mode planning tick publishes a `ManualGapSample` (candidates, choice, cursor, goal, scan), sessions are recorded with `record_il:=true`, and `il_tools/il_build_dataset` builds the Alternative 1 dataset. Facts below that changed since this design was written: the planner tick is 10 Hz (≈9 Hz measured), not 5 Hz; the robot drives **holonomic** since fix 44 (strafes, heading fixed, `angular.z = 0`); manual selection uses a direction cone plus a sticky switch (fix 43), not plain nearest-endpoint. Still missing for the MoG route: GRU online (M-02), teleop (M-01), HG-DAgger infrastructure (M-05). DynamicGap's pick and costs are recorded since fix 48 (2026-10-23, M-03). The current system is described in `COMPLETE_OVERVIEW_IL_DOC.md`.
 
 **Review finding (added 2026-10-17).** The current data-collection plan cannot produce this dataset yet. Confirmed: no teleop data exists (every human run is a cursor gap selection), and the GRU does not run inside the planner; it has only been trained and evaluated offline. The gap-selection hybrid (Alternative 1) is what the existing plan already logs; the MoG waypoint model needs extra recording work listed in the next two sections.
 
@@ -44,7 +44,7 @@ The current plan (`dynamic_gap/docs/IL_DATA_COLLECTION_PLAN.md`, 2026-10-07) alr
 | Future odometry poses for waypoint labels | `odom` (50 Hz) and `/tf` in the bag | Recorded; labels are not built yet (`il_build_dataset` builds gap-index labels only) |
 | Episode outcome | Planned (R-13) | **Built** offline: `il_bags.episode_outcomes` (`GOAL_REACHED`, `TIMEOUT`, `ABORTED`, collision flag) |
 | GRU tracked positions and velocities | Not recorded; candidate `model_vel` comes from the Kalman filter | **Missing** |
-| DynamicGap's own pick and costs | Dropped from v1 (D4, R-01) | **Missing**, and needed for Alternative 1's go/no-go |
+| DynamicGap's own pick and costs | Dropped from v1 (D4, R-01) | **Built** (fix 48, `50e7acd`): `dg_pick_idx`, per-candidate `dg_*` costs |
 | Human (v, ω) teleop commands | No teleop path; only cursor gap selection exists | **Missing** |
 | HG-DAgger: control owner, takeover, policy output, human command always on | `SOURCE_MODEL` is reserved only | **Missing** |
 | Runs with `changeTrajectory()` safety checks on | Manual mode skips them | **Missing** |
@@ -52,7 +52,7 @@ The current plan (`dynamic_gap/docs/IL_DATA_COLLECTION_PLAN.md`, 2026-10-07) alr
 **Where the two disagree**
 
 1. **No teleop data exists (confirmed).** The design assumes human (v, ω) demos. Every human run so far is cursor gap selection, where DynamicGap generates and tracks the trajectory. Odometry waypoint labels from those runs imitate DynamicGap's generator steered by human gap choice; speed and timing come from the generator, not the human. That weakens the design's case against output option D, and the design itself notes the cursor gave no speed control.
-2. **D4 must flip for Alternative 1.** Its first test is "how often did the human disagree with DynamicGap's pick". In manual mode `pickTraj` and the whole comparison block are skipped (`Planner.cpp:2149-2192` at `f27f357`), so that pick does not exist. Recording it needs a side-effect-free scoring call (R-01). Still true at `5ecc15a`.
+2. **D4 must flip for Alternative 1.** Its first test is "how often did the human disagree with DynamicGap's pick". In manual mode `pickTraj` and the whole comparison block are skipped (`Planner.cpp:2149-2192` at `f27f357`), so that pick does not exist. Recording it needs a side-effect-free scoring call (R-01). Done in fix 48: `pickTraj` into local outputs, no comparison block.
 3. **Turning safety checks on changes robot behaviour.** The design wants human runs with `changeTrajectory()` enabled; the plan's principle is not to change behaviour. Make it a separate collection condition, flagged in every sample. (The plan has since accepted other behaviour changes in manual mode: hold still without a selection, fixes 16/37, and a sticky selection, fix 43. The sticky switch is a form of hysteresis, so M-04's "no hysteresis" no longer holds for new sessions.)
 4. **The GRU does not run inside the planner (confirmed).** No planner code calls it. The only launch entry (`mbf_dgap.launch:25-45`) is commented out, points at another user's home directory, loads a pedestrian-density model rather than the velocity model, and its script `gru_gap_feature_node.py` is not in this checkout. The velocity GRUs exist only as `.pt` files in `ml_gap_velocity/models/` (sequence lengths 8 and 15).
 5. **Rates.** The design runs the policy at 10 Hz. The planner tick was thought to be 5 Hz; it is 10 Hz configured (`move_base_params.yaml`), ≈9 Hz measured (plan PL-15), so the rates already match. The deployment loop should still have its own rate setting.
@@ -67,7 +67,7 @@ This design adds nine issues and four decisions to the plan's register. They use
 | --- | --- | --- | --- |
 | M-01 | BLOCKER (MoG route) | No continuous human action data exists; all human runs are cursor gap selections | Decide D8; if teleop is wanted, add a joystick path and record the human (v, ω) |
 | M-02 | HIGH | The GRU does not run inside the planner, so its tracks cannot be recorded | Restore a GRU node that publishes per-scan tracks (x, y, vx, vy, valid, age) and record it |
-| M-03 | HIGH | DynamicGap's own pick is never computed in manual mode | Call a side-effect-free `pickTraj` in manual mode and record its index and costs (reverses D4) |
+| M-03 | HIGH | DynamicGap's own pick is never computed in manual mode | Call a side-effect-free `pickTraj` in manual mode and record its index and costs (reverses D4). **Done, fix 48** |
 | M-04 | HIGH | The 80% human result had no `changeTrajectory()` checks and no hysteresis | Re-measure as a separate condition; add `safety_checks_on` to the sample |
 | M-05 | HIGH | No HG-DAgger infrastructure: arbiter, takeover input, `/control_owner`, policy-output topic | Build an arbiter node; add `control_owner` and the policy output to the sample |
 | M-06 | MED | With a model driving, `cursor_live` cannot tell "watching" from "intervening" | Add an explicit takeover toggle to the RViz tool and to `CursorState` |
@@ -80,7 +80,7 @@ This design adds nine issues and four decisions to the plan's register. They use
 | # | Decision | Suggested default |
 | --- | --- | --- |
 | D8 | Collect teleop demos, or build the first model from cursor gap-selection runs only? | Cursor runs first (Alternative 1 + odometry waypoints); teleop only if the waypoint model needs human speed control |
-| D9 | Record DynamicGap's pick and costs in v1? | Yes; it is the Alternative 1 go/no-go test |
+| D9 | Record DynamicGap's pick and costs in v1? | Yes; it is the Alternative 1 go/no-go test. **Done, fix 48** |
 | D10 | Collect a condition with `changeTrajectory()` checks on? | Yes, as a separate, flagged session type |
 | D11 | Which GRU is the frozen track estimator? | Open |
 
@@ -392,7 +392,7 @@ Viable as a gap-selection model; Marginal for its continuous sub-head. It imitat
 
 - Labels are recorded: `selectManualTrajectory` builds one candidate list per tick, selects from it and publishes a `ManualGapSample` with `selected_idx` (fixes A, B). `il_tools/il_build_dataset` writes this model's dataset (per-candidate features, label index, split by episode).
 - The selection rule is a direction cone (±60°) plus a sticky switch (0.7 distance ratio, fix 43), so new labels have hysteresis. The inference switch rule in step 5 below should be compared with it.
-- Still true: manual mode skips `pickTraj` and the comparison block (M-03, M-04), so DynamicGap's pick and costs are not recorded, and "is current" is not a per-candidate field (it can be derived from the previous tick's selected model IDs).
+- Manual mode still skips the comparison block (M-04). Since fix 48 (2026-10-23) it runs `pickTraj` into local outputs and records DynamicGap's pick and costs; `il_build_dataset` derives `is_current` from the previous tick's selected model IDs.
 - The 80% / 50–60% success figures came from the `arena_evaluation` metrics before fix 03, which could count a timeout as a success; treat them as unreliable until re-measured.
 
 **How it would be built here.**

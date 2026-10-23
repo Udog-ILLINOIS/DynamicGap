@@ -106,7 +106,7 @@ is what the code does as of 2026-10-22.
 | D1 | Does a still mouse mean a map spot or a direction from the robot? | Whatever is under the cursor on screen (see 1.5, T2). The RViz view then decides which it is. With the shipped view (top-down, following `rto/base_link`) a still mouse means a fixed offset from the robot. | As assumed; re-projected every publish (fix 29). |
 | D2 | Hover-nearest, or latch a gap until the operator points elsewhere? | Hover-nearest for version 1; revisit after the pilot. | **Decided:** direction cone + sticky switch (fix 43). Thresholds to check in the pilot. |
 | D3 | On a dead cursor: change robot behaviour, or only flag? | Flag only. | **Overridden:** the robot holds still without a selection (fixes 16, 37); a still mouse is not a dead cursor (fix 40). |
-| D4 | Include the autonomous planner's pick? | Not in version 1. | Not recorded (M-03 / D9 open). |
+| D4 | Include the autonomous planner's pick? | Not in version 1. | **Reversed:** recorded since fix 48 (`dg_pick_idx`, per-candidate `dg_*` costs), without acting on it. |
 | D5 | What is the model given as input? | Scan, robot velocity, goal, candidate set. RViz is cut down to match. | Inputs as assumed; RViz is **not** cut down yet (PL-26). |
 | D6 | Gaps only, or also "go straight" and "wait"? | Gaps only; forced-choice ticks are flagged. | Gaps only; ungap and idling are off in both modes (PL-31), so the flags are always false. |
 | D7 | Where bags are stored (`data_root`). | Not set. | Pilot uses `/home/abdel/il_data`; not fixed in the protocol. |
@@ -137,7 +137,7 @@ set if need be. There are three early returns before candidates exist
 (not ready, colliding, no gaps; 1.11 R-28).
 
 The sketches below are the design. The implemented messages are in
-arena-rosnav `utils/ros/msgs/manual_gap_msgs/msg/` (`SCHEMA_VERSION = 1`)
+arena-rosnav `utils/ros/msgs/manual_gap_msgs/msg/` (`SCHEMA_VERSION = 2` since fix 48)
 and add to `ManualGapSample`: `status` (`PLANNED`, `NOT_READY`, `COLLIDING`,
 `NO_GAPS`), `cursor_valid` (a cursor point was available for selection) and
 `hold_still` (zero velocity commanded this tick). `episode_id` is -1 before
@@ -712,8 +712,10 @@ check; the result is in 1.11.
 **R-01 — Autonomous pick and cost are not free** (HIGH)
 - *Problem.* Manual mode returns before costs are computed; the scoring
   block has side effects.
-- *Fix.* Dropped from version 1 (D4). Needs a side-effect-free scoring
-  function if wanted later.
+- *Fix.* Dropped from version 1 (D4). Since fix 48 `pickTraj` runs in
+  manual mode into local outputs, without the comparison block, and the
+  costs come from the trajectories already generated; see
+  [doc 48](il_pipeline_fixes/48-dynamic-gap-pick.md).
 
 ## 2.6 Frames and time
 
@@ -955,6 +957,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-45 | LOW | Ticks without planning (not ready, colliding, no gaps) recorded selected_idx 0 instead of -1 | dynamic_gap | Fixed `8d75c2a`, [doc](il_pipeline_fixes/45-early-return-selected-idx.md) |
 | PL-46 | MED | Collision episodes not detected: colliding ticks carry no scan | dynamic_gap | Fixed `a4ceba5`, [doc](il_pipeline_fixes/46-collision-from-status.md) |
 | PL-47 | LOW | Datasets only from whole sessions; no way to pick episodes | dynamic_gap | Fixed `8f5f49f`, [doc](il_pipeline_fixes/47-episode-sets.md) |
+| PL-48 | HIGH | DynamicGap's own pick and costs not recorded (M-03); dataset lacks yaw, `is_current`, `shown`, `tube_len` | dynamic_gap, arena-rosnav | Fixed `50e7acd`, `1debace` (dataset), arena-rosnav `e9054b511`, [doc](il_pipeline_fixes/48-dynamic-gap-pick.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
@@ -962,13 +965,13 @@ in each issue's doc as it is fixed.
 
 ## 3.2 Issues from the IL model design (M-xx)
 
-From `IL_MODEL_AND_DATA_DESIGN.md`. All open.
+From `IL_MODEL_AND_DATA_DESIGN.md`. All open except M-03 (fix 48).
 
 | ID | Sev | Issue |
 |---|---|---|
 | M-01 | BLOCKER (MoG route) | No teleop or continuous human action data exists |
 | M-02 | HIGH | The GRU does not run inside the planner; its tracks cannot be recorded |
-| M-03 | HIGH | DynamicGap's own pick is never computed in manual mode |
+| M-03 | HIGH | DynamicGap's own pick is never computed in manual mode. Fixed (PL-48) |
 | M-04 | HIGH | The 80% human result had no `changeTrajectory()` checks or hysteresis |
 | M-05 | HIGH | No HG-DAgger infrastructure (arbiter, takeover, `/control_owner`) |
 | M-06 | MED | `cursor_live` cannot tell watching from intervening |

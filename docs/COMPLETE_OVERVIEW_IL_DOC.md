@@ -404,7 +404,7 @@ offline (P5).
 
 ## II.3 Message schema
 
-All in arena-rosnav `utils/ros/msgs/manual_gap_msgs/msg/`. `SCHEMA_VERSION = 1`.
+All in arena-rosnav `utils/ros/msgs/manual_gap_msgs/msg/`. `SCHEMA_VERSION = 2` (fix 48).
 
 ### `ManualGapSample` — one planning tick
 
@@ -417,6 +417,7 @@ including ticks that end before candidates exist.
 | Observation | `scan` (the scan the gaps came from), `gap_snapshot_stamp`, `odom_stamp`, `robot_pose_odom`, `robot_vel` (robot frame), `goal_robot_frame`, `local_waypoint_robot_frame`, `candidates[]`, `ungap_would_apply` / `idle_would_apply` (reserved, false) | What the operator saw |
 | Cursor | `cursor` (latest `CursorState`, verbatim), `cursor_rx_wall`, `cursor_odom` (point used for selection), `cursor_valid`, `cursor_live` | Where the mouse was and whether it was in use |
 | Choice | `source` (`NONE`, `GAP_CURSOR`, `CLICK_TO_MOVE`, `MODEL` reserved), `selected_idx` (position in `candidates[]`, -1 if none), `selected_left/right_model_id`, `click_point_odom`, `hold_still` | What was chosen |
+| DynamicGap | `dg_pick_idx` (position in `candidates[]` of DynamicGap's lowest-cost gap, -1 if none; recorded, not executed; fix 48) | What the planner would have preferred |
 
 A tick is a **usable label** when
 `source == GAP_CURSOR && cursor_live && !in_reset_window && selected_idx >= 0`
@@ -435,6 +436,9 @@ in use, and it was not the moment of a reset.
 - Trajectory, odom frame: `goal_pos`, `terminal_pose`, `path` (downsampled).
 - Cursor relation: `cursor_dist` (cursor to terminal pose, m),
   `cursor_bearing_diff` (rad); NaN if no cursor or not feasible.
+- DynamicGap's cost (fix 48): `dg_cost` = `dg_terminal_cost` (Q_f × distance
+  to the local waypoint) + `dg_clearance_cost` (mean pose-wise cost); inf if
+  the path has < 2 poses, NaN if not scored. Lower is better.
 
 `selected_idx` indexes this array, so the label always refers to what was on
 screen that tick.
@@ -674,8 +678,11 @@ kept unless a filter drops it (`il_dataset.build_examples`):
 Not filtered today: **timeout episodes**. Runs where the operator hesitated
 until the timeout may teach hesitation; tag them or try a build without them.
 
-An example holds the scan, robot velocity and pose, goal and local waypoint
-(robot frame), every candidate's features, and the label index.
+An example holds the scan, robot velocity, pose and yaw, goal and local
+waypoint (robot frame), every candidate's features, DynamicGap's pick
+(`dg_pick`) and the label index. Candidate features include `shown`,
+`tube_len`, `is_current` (followed on the previous tick), robot-frame goal,
+terminal and path, and the `dg_*` costs (None before schema 2; fix 48).
 
 ### `il_replay_viewer`
 `rosbag play --clock SESSION_DIR/session_*.bag` plus
@@ -753,7 +760,8 @@ Full reasoning: `docs/IL_MODEL_AND_DATA_DESIGN.md`.
 
 ## II.10 Data compatibility across versions
 
-`SCHEMA_VERSION` is still 1: no field has been added or removed since fix B.
+`SCHEMA_VERSION` is 2 since fix 48 (DynamicGap's pick and costs added); 1 from
+fix B until then.
 Several fixes changed what the fields mean or how the robot behaves, so
 sessions from before and after them must not be pooled unmarked. Tell them
 apart by the dynamic_gap (and simulation-setup) commit in each session's
@@ -766,6 +774,7 @@ apart by the dynamic_gap (and simulation-setup) commit in each session's
 | 43 | dynamic_gap `3c2ef1c` (2026-10-22) | Selection rule: direction cone + sticky switch, instead of hover-nearest. Labels, switch rate and hold-still ticks change | `/man_gap_max_bearing_deg` and `/man_gap_switch_ratio` in `params.yaml` |
 | 44 | simulation-setup `7c1f551` (2026-10-22) | Holonomic driving: `cmd_vel.linear.y` used, heading fixed. Trajectories and odometry differ | `holonomic: true` under the dgap params in `params.yaml` |
 | 45 | dynamic_gap `8d75c2a` (2026-10-22) | Early-return ticks record `selected_idx = -1` instead of 0. Old sessions: filter on `status == PLANNED` | Commit |
+| 48 | dynamic_gap `50e7acd`, arena-rosnav `e9054b511` (2026-10-23) | `dg_pick_idx` and per-candidate `dg_*` costs added; behaviour unchanged | `schema_version == 2` |
 | 15 | simulation-setup `832aed2` | None: the rate was always 10 Hz; only the config was cleaned up | — |
 
 Rules:
@@ -807,7 +816,7 @@ the rest.
 | D1 | Still mouse: map spot or direction from the robot? | What is under the mouse on screen, re-projected every publish (fix 29). With the robot-following view this is a fixed offset from the robot. |
 | D2 | Hover-nearest or latch a gap? | **Decided:** direction cone + sticky switch (fix 43). Thresholds to be checked in the pilot. |
 | D3 | Dead cursor: change behaviour or only flag? | **Overridden:** the robot holds still without a selection (fixes 16, 37); a still mouse is not a dead cursor (fix 40). |
-| D4 | Record the autonomous planner's pick? | Not recorded (M-03 / D9 open). |
+| D4 | Record the autonomous planner's pick? | Recorded since fix 48 (`dg_pick_idx`, `dg_*` costs), computed without acting on it (M-03, D9). |
 | D5 | Model inputs | Scan, robot velocity, goal, candidate set. RViz is **not** cut down to match yet (fix 26). |
 | D6 | Gaps only, or also "go straight" / "wait"? | Gaps only; ungap and idling are off in both modes (fix 31). |
 | D7 | `data_root` | Pilot uses `/home/abdel/il_data`; not fixed in the protocol. |
@@ -892,6 +901,7 @@ One doc per fix in `docs/il_pipeline_fixes/`; status and commits in plan 3.1.
 | 43 | Directional, sticky selection | dynamic_gap, arena-rosnav | Manual: new selection rule |
 | 44 | Holonomic control | simulation-setup | Both: robot strafes, heading fixed |
 | 45 | Early-return `selected_idx` 0 | dynamic_gap | Recorded `-1` on early returns |
+| 48 | DynamicGap's pick and costs | dynamic_gap, arena-rosnav | Recorded only (`dg_pick_idx`, `dg_*`); schema 2 |
 | — | Offline tools | dynamic_gap | `il_check_session`, `il_build_dataset`, `il_replay_viewer` |
 
 ## B. System map
