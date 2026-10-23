@@ -953,6 +953,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-43 | HIGH | Selected gap switches too often (close calls flip back and forth); gaps pointing away from the cursor get selected | dynamic_gap, arena-rosnav | Fixed `3c2ef1c`, arena-rosnav `2b1ecdea2` (arguments), [doc](il_pipeline_fixes/43-directional-sticky-selection.md) |
 | PL-44 | MED | dgap ran non-holonomic on the holonomic rto (heading turned, no strafing) | simulation-setup | Fixed `7c1f551` (simulation-setup), [doc](il_pipeline_fixes/44-holonomic.md) |
 | PL-45 | LOW | Ticks without planning (not ready, colliding, no gaps) recorded selected_idx 0 instead of -1 | dynamic_gap | Fixed `8d75c2a`, [doc](il_pipeline_fixes/45-early-return-selected-idx.md) |
+| PL-46 | MED | Collision episodes not detected: colliding ticks carry no scan | dynamic_gap | Fixed `a4ceba5`, [doc](il_pipeline_fixes/46-collision-from-status.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
