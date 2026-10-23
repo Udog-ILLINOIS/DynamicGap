@@ -67,7 +67,16 @@ namespace dynamic_gap
             static int selectManualTrajectory(Planner & planner, int & trajFlag, const std::vector<GapTube *> & gapTubes,
                                               const std::vector<Trajectory> & gapTrajs, manual_gap_msgs::ManualGapSample & sample,
                                               Trajectory & chosenTraj)
-            { return planner.selectManualTrajectory(trajFlag, gapTubes, gapTrajs, sample, chosenTraj); }
+            { return planner.selectManualTrajectory(trajFlag, gapTubes, gapTrajs, {}, {}, sample, chosenTraj); }
+            static int selectManualTrajectory(Planner & planner, int & trajFlag, const std::vector<GapTube *> & gapTubes,
+                                              const std::vector<Trajectory> & gapTrajs,
+                                              const std::vector<std::vector<float>> & poseCosts,
+                                              const std::vector<float> & terminalCosts,
+                                              manual_gap_msgs::ManualGapSample & sample, Trajectory & chosenTraj)
+            { return planner.selectManualTrajectory(trajFlag, gapTubes, gapTrajs, poseCosts, terminalCosts, sample, chosenTraj); }
+            static void pickTraj(Planner & planner, int & trajFlag, int & trajIdx, const std::vector<Trajectory> & gapTrajs,
+                                 const std::vector<std::vector<float>> & poseCosts, const std::vector<float> & terminalCosts)
+            { planner.pickTraj(trajFlag, trajIdx, gapTrajs, poseCosts, terminalCosts, {}, {}, {}, {}, {}, {}); }
             static Trajectory currentTraj(Planner & planner) { return planner.currentTraj_; }
             static ros::Duration currentLifespan(Planner & planner) { return planner.currentTrajLifespan_; }
             static void setCurrentTraj(Planner & planner, const Trajectory & traj) { planner.currentTraj_ = traj; }

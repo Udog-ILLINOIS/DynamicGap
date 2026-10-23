@@ -244,6 +244,8 @@ namespace dynamic_gap
             * \param trajFlag GAP if a trajectory was selected, NONE otherwise
             * \param gapTubes gap tubes of this tick
             * \param gapTrajs trajectory per gap tube (empty if infeasible)
+            * \param gapTrajPoseCosts pose-wise costs per gap trajectory (recorded, not used to select)
+            * \param gapTrajTerminalPoseCosts terminal cost per gap trajectory (recorded, not used to select)
             * \param sample per-tick sample to fill
             * \param chosenTraj trajectory to track (copied under the selection lock)
             * \return index into currentManualCandidates_ of the selection, -1 if none
@@ -251,6 +253,8 @@ namespace dynamic_gap
             int selectManualTrajectory(int & trajFlag,
                                        const std::vector<GapTube *> & gapTubes,
                                        const std::vector<Trajectory> & gapTrajs,
+                                       const std::vector<std::vector<float>> & gapTrajPoseCosts,
+                                       const std::vector<float> & gapTrajTerminalPoseCosts,
                                        manual_gap_msgs::ManualGapSample & sample,
                                        Trajectory & chosenTraj);
 

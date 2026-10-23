@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <geometry_msgs/TransformStamped.h>
 #include <std_msgs/Int16.h>
 
@@ -91,7 +93,19 @@ TEST(ManualSelectionHelpers, NewSampleHasNoSelection)
     EXPECT_EQ(-1, sample.selected_idx);
     EXPECT_EQ(-1, sample.selected_left_model_id);
     EXPECT_EQ(-1, sample.selected_right_model_id);
+    EXPECT_EQ(-1, sample.dg_pick_idx);
     EXPECT_TRUE(sample.candidates.empty());
+}
+
+// DynamicGap's cost, as pickTraj ranks it and manual mode records it
+TEST(ManualSelectionHelpers, DgTrajCost)
+{
+    EXPECT_FLOAT_EQ(2.0f, dynamic_gap::meanPoseCost({1.0f, 3.0f}));
+    EXPECT_TRUE(std::isnan(dynamic_gap::meanPoseCost({})));
+    EXPECT_FLOAT_EQ(7.0f, dynamic_gap::dgTrajCost({1.0f, 3.0f}, 5.0f, 2));
+    // fewer than 2 poses: never picked
+    EXPECT_TRUE(std::isinf(dynamic_gap::dgTrajCost({1.0f}, 5.0f, 1)));
+    EXPECT_TRUE(std::isinf(dynamic_gap::dgTrajCost({}, 0.0f, 0)));
 }
 
 TEST(ManualSelectionHelpers, DownsamplePathKeepsLastPose)
@@ -380,6 +394,59 @@ TEST_F(ManualPlannerTest, SelectsNearestFeasibleAndRecordsTheList)
     ASSERT_EQ(6u, chosen.getPathOdomFrame().poses.size());
     EXPECT_DOUBLE_EQ(-1.0, chosen.getPathOdomFrame().poses.back().position.y);
     EXPECT_NEAR(2.5, PlannerTestAccess::currentLifespan(planner_).toSec(), 1e-6);
+}
+
+// DynamicGap's costs are recorded per candidate; its pick is the lowest of them
+// and does not change the operator's selection
+TEST_F(ManualPlannerTest, RecordsDynamicGapCostsAndPick)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+    PlannerTestAccess::cursorCB(planner_, cursor(true, true, 4.0, 1.0));  // odom (3, -1)
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, 1.0));
+    addCandidate(tick, Trajectory());  // infeasible
+    addCandidate(tick, trajTo(3.0, -1.0));
+    std::vector<std::vector<float>> poseCosts = {std::vector<float>(6, 1.0f), {}, std::vector<float>(6, 2.0f)};
+    std::vector<float> terminalCosts = {0.5f, 0.0f, 0.5f};
+
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    int selected = PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs,
+                                                             poseCosts, terminalCosts, sample, chosen);
+
+    ASSERT_EQ(3u, sample.candidates.size());
+    EXPECT_FLOAT_EQ(1.5f, sample.candidates[0].dg_cost);
+    EXPECT_FLOAT_EQ(0.5f, sample.candidates[0].dg_terminal_cost);
+    EXPECT_FLOAT_EQ(1.0f, sample.candidates[0].dg_clearance_cost);
+    EXPECT_TRUE(std::isinf(sample.candidates[1].dg_cost));
+    EXPECT_FLOAT_EQ(2.5f, sample.candidates[2].dg_cost);
+
+    int dgFlag = dynamic_gap::NONE;
+    int dgIdx = -1;
+    PlannerTestAccess::pickTraj(planner_, dgFlag, dgIdx, tick.trajs, poseCosts, terminalCosts);
+    EXPECT_EQ(dynamic_gap::GAP, dgFlag);
+    EXPECT_EQ(0, dgIdx);
+    // the operator's choice stands
+    EXPECT_EQ(2, selected);
+    EXPECT_EQ(2, sample.selected_idx);
+    EXPECT_EQ(dynamic_gap::GAP, trajFlag);
+    EXPECT_DOUBLE_EQ(-1.0, PlannerTestAccess::currentTraj(planner_).getPathOdomFrame().poses.back().position.y);
+}
+
+TEST_F(ManualPlannerTest, CostsNotScoredAreNaN)
+{
+    PlannerTestAccess::setTrajVisualizer(planner_);
+
+    Tick tick;
+    addCandidate(tick, trajTo(3.0, 1.0));
+    manual_gap_msgs::ManualGapSample sample;
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    PlannerTestAccess::selectManualTrajectory(planner_, trajFlag, tick.tubes, tick.trajs, sample, chosen);
+    ASSERT_EQ(1u, sample.candidates.size());
+    EXPECT_TRUE(std::isnan(sample.candidates[0].dg_cost));
 }
 
 TEST_F(ManualPlannerTest, NoCursorSelectsNothing)

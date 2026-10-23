@@ -238,7 +238,33 @@ namespace dynamic_gap
         sample.selected_idx = -1;
         sample.selected_left_model_id = -1;
         sample.selected_right_model_id = -1;
+        sample.dg_pick_idx = -1;
         return sample;
+    }
+
+    /**
+    * \brief Mean of a trajectory's pose-wise costs (the clearance term of pickTraj)
+    */
+    inline float meanPoseCost(const std::vector<float> & poseCosts)
+    {
+        if (poseCosts.empty())
+            return std::numeric_limits<float>::quiet_NaN();
+        float sum = 0.0f;
+        for (const float & cost : poseCosts)
+            sum += cost;
+        return sum / poseCosts.size();
+    }
+
+    /**
+    * \brief DynamicGap's cost of one trajectory, as pickTraj ranks it: terminal
+    * cost plus mean pose-wise cost, infinite for a path of fewer than 2 poses
+    * \param numPoses number of poses of the trajectory
+    */
+    inline float dgTrajCost(const std::vector<float> & poseCosts, const float & terminalCost, const size_t & numPoses)
+    {
+        if (numPoses < 2)
+            return std::numeric_limits<float>::infinity();
+        return terminalCost + meanPoseCost(poseCosts);
     }
 
     /**

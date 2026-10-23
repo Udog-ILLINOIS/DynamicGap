@@ -978,6 +978,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
     int Planner::selectManualTrajectory(int & trajFlag,
                                         const std::vector<GapTube *> & gapTubes,
                                         const std::vector<Trajectory> & gapTrajs,
+                                        const std::vector<std::vector<float>> & gapTrajPoseCosts,
+                                        const std::vector<float> & gapTrajTerminalPoseCosts,
                                         manual_gap_msgs::ManualGapSample & sample,
                                         Trajectory & chosenTraj)
     {
@@ -1081,6 +1083,18 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
             cMsg.cursor_dist = std::numeric_limits<float>::quiet_NaN();
             cMsg.cursor_bearing_diff = std::numeric_limits<float>::quiet_NaN();
+
+            // DynamicGap's own cost of this candidate, recorded only
+            cMsg.dg_cost = std::numeric_limits<float>::quiet_NaN();
+            cMsg.dg_terminal_cost = std::numeric_limits<float>::quiet_NaN();
+            cMsg.dg_clearance_cost = std::numeric_limits<float>::quiet_NaN();
+            if (i < gapTrajPoseCosts.size() && i < gapTrajTerminalPoseCosts.size())
+            {
+                cMsg.dg_terminal_cost = gapTrajTerminalPoseCosts.at(i);
+                cMsg.dg_clearance_cost = meanPoseCost(gapTrajPoseCosts.at(i));
+                cMsg.dg_cost = dgTrajCost(gapTrajPoseCosts.at(i), gapTrajTerminalPoseCosts.at(i),
+                                          gapTrajs.at(i).getPathRbtFrame().poses.size());
+            }
 
             if (c.feasible)
             {
@@ -1938,10 +1952,9 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
                 //     ROS_WARN_STREAM_NAMED("Planner", "gap traj " << i << " has < 2 poses");
                 // }
 
-                pathCosts.at(runningTrajIdx) = gapTrajTerminalPoseCosts.at(i) + std::accumulate(currentTrajPoseCosts.begin(), currentTrajPoseCosts.end(), float(0)) / currentTrajPoseCosts.size();
-                
-                pathCosts.at(runningTrajIdx) = currentTraj.getPathRbtFrame().poses.size() < 2 ? std::numeric_limits<float>::infinity() : 
-                                                                                                    pathCosts.at(runningTrajIdx);
+                // same cost manual mode records per candidate (dg_cost)
+                pathCosts.at(runningTrajIdx) = dgTrajCost(currentTrajPoseCosts, currentTrajTerminalPoseCost,
+                                                          currentTraj.getPathRbtFrame().poses.size());
                 
                 ROS_INFO_STREAM_NAMED("Planner", "    for gap tube " << i << " (length: " << gapTrajs.at(i).getPathRbtFrame().poses.size() << "), returning cost of " << pathCosts.at(runningTrajIdx));
             
@@ -2502,11 +2515,24 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (manualSelectionMode_)
         {
             // select first, then draw, so the highlight shows this tick's pick
-            int selectedIdx = selectManualTrajectory(trajFlag, gapTubes, gapTrajs, sample, chosenTraj);
+            int selectedIdx = selectManualTrajectory(trajFlag, gapTubes, gapTrajs,
+                                                     gapTrajPoseCosts, gapTrajTerminalPoseCosts,
+                                                     sample, chosenTraj);
             {
                 boost::mutex::scoped_lock lock(manualSelectionMutex_);
                 publishManualCandidateMarkers(selectedIdx);
             }
+
+            // DynamicGap's own pick, recorded only: local outputs and no
+            // comparison block, so the robot still follows the operator
+            int dgTrajFlag = NONE;
+            int dgTrajIdx = -1;
+            pickTraj(dgTrajFlag, dgTrajIdx,
+                    gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
+                    ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
+                    idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
+            // candidates[] holds every gap trajectory in order, so the gap index is the position
+            sample.dg_pick_idx = (dgTrajFlag == GAP) ? dgTrajIdx : -1;
         }
         else
         {
