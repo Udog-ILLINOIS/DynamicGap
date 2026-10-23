@@ -359,6 +359,48 @@ class DatasetTest(SessionTestCase):
         _, counts = self.build(lag_s=0.25, max_lag_error_s=1.0)
         self.assertEqual(counts["duplicate"], 1)
 
+    def test_dynamic_gap_costs_and_pick_exported(self):
+        samples = self.good_samples()
+        for s in samples:
+            s.dg_pick_idx = 1
+            for c, cost in zip(s.candidates, (2.0, 1.5)):
+                c.dg_cost, c.dg_terminal_cost, c.dg_clearance_cost = cost, cost - 1.0, 1.0
+        samples[5].candidates[0].dg_cost = float("inf")
+        self.write(samples)
+        examples, _ = self.build()
+        ex = [e for e in examples if e["obs_tick"] == 4][0]
+        self.assertEqual(ex["schema_version"], ManualGapSample.SCHEMA_VERSION)
+        self.assertEqual(ex["dg_pick"], 1)
+        self.assertEqual([c["dg_cost"] for c in ex["candidates"]], [2.0, 1.5])
+        self.assertEqual(ex["candidates"][1]["dg_terminal_cost"], 0.5)
+        self.assertTrue(math.isinf([e for e in examples if e["obs_tick"] == 5][0]["candidates"][0]["dg_cost"]))
+
+    def test_is_current_from_previous_tick(self):
+        self.write(self.good_samples())
+        examples, _ = self.build()
+        by_tick = {e["obs_tick"]: e for e in examples}
+        # first tick of an episode follows nothing
+        self.assertFalse(any(c["is_current"] for c in by_tick[0]["candidates"]))
+        self.assertEqual([c["is_current"] for c in by_tick[1]["candidates"]], [True, False])
+        self.assertEqual([c["is_current"] for c in by_tick[21]["candidates"]], [False, True])
+
+    def test_robot_frame_geometry(self):
+        samples = self.good_samples()
+        for s in samples:
+            # robot at (1, 0) facing +y
+            s.robot_pose_odom.position.x = 1.0
+            s.robot_pose_odom.orientation.z = math.sin(math.pi / 4)
+            s.robot_pose_odom.orientation.w = math.cos(math.pi / 4)
+        self.write(samples)
+        examples, _ = self.build()
+        ex = examples[0]
+        self.assertAlmostEqual(ex["robot_yaw_odom"], math.pi / 2)
+        # odom terminal (3, 1): 1 m ahead, 2 m to the right
+        x, y = ex["candidates"][0]["terminal_rbt"]
+        self.assertAlmostEqual(x, 1.0)
+        self.assertAlmostEqual(y, -2.0)
+        self.assertTrue(ex["candidates"][0]["shown"])
+
     def test_split_is_by_episode_and_deterministic(self):
         splits = {"train": 0.5, "val": 0.5}
         a = [il_dataset.episode_split("s", e, splits, "seed") for e in range(50)]

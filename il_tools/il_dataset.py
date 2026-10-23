@@ -69,10 +69,38 @@ def is_valid_observation(tick):
     return tick.status == il_bags.STATUS_PLANNED and not tick.in_reset_window
 
 
-def candidate_features(c):
+def yaw(pose):
+    q = pose.orientation
+    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+
+def to_robot_frame(x, y, pose):
+    """Odom point (x, y) in the frame of the robot at pose."""
+    c, s = math.cos(yaw(pose)), math.sin(yaw(pose))
+    dx, dy = x - pose.position.x, y - pose.position.y
+    return [c * dx + s * dy, -s * dx + c * dy]
+
+
+def previous_selection(ticks, index):
+    """Identity of the gap followed on the tick before ticks[index], None if none."""
+    if index == 0:
+        return None
+    prev = ticks[index - 1]
+    if prev.status != il_bags.STATUS_PLANNED or prev.selected_idx < 0:
+        return None
+    return il_bags.selected_identity(prev)
+
+
+def candidate_features(c, pose, followed):
+    """followed: identity of the gap followed on the previous tick (None if none).
+    The dg_* fields are None in sessions recorded before schema 2."""
+    nan = float("nan")
     return {
         "traj_idx": c.traj_idx,
         "feasible": c.feasible,
+        "shown": c.shown,
+        "tube_len": c.tube_len,
+        "is_current": followed is not None and il_bags.identity(c) == followed,
         "left_range": c.left_range, "left_theta": c.left_theta,
         "right_range": c.right_range, "right_theta": c.right_theta,
         "bearing": c.bearing,
@@ -81,10 +109,16 @@ def candidate_features(c):
         "goal_odom": [c.goal_pos.x, c.goal_pos.y],
         "terminal_odom": [c.terminal_pose.position.x, c.terminal_pose.position.y],
         "path_odom": [[p.x, p.y] for p in c.path],
+        "goal_rbt": to_robot_frame(c.goal_pos.x, c.goal_pos.y, pose),
+        "terminal_rbt": to_robot_frame(c.terminal_pose.position.x, c.terminal_pose.position.y, pose) if c.feasible else [nan, nan],
+        "path_rbt": [to_robot_frame(p.x, p.y, pose) for p in c.path],
+        "dg_cost": getattr(c, "dg_cost", None),
+        "dg_terminal_cost": getattr(c, "dg_terminal_cost", None),
+        "dg_clearance_cost": getattr(c, "dg_clearance_cost", None),
     }
 
 
-def example(session, obs, label_tick, label_idx):
+def example(session, obs, label_tick, label_idx, followed=None):
     return {
         "session": session,
         "episode": obs.episode_id,
@@ -95,9 +129,13 @@ def example(session, obs, label_tick, label_idx):
                  "range_max": obs.scan.range_max, "ranges": list(obs.scan.ranges)},
         "robot_vel": [obs.robot_vel.linear.x, obs.robot_vel.linear.y, obs.robot_vel.angular.z],
         "robot_pose_odom": [obs.robot_pose_odom.position.x, obs.robot_pose_odom.position.y],
+        "robot_yaw_odom": yaw(obs.robot_pose_odom),
         "goal": [obs.goal_robot_frame.x, obs.goal_robot_frame.y],
         "local_waypoint": [obs.local_waypoint_robot_frame.x, obs.local_waypoint_robot_frame.y],
-        "candidates": [candidate_features(c) for c in obs.candidates],
+        "candidates": [candidate_features(c, obs.robot_pose_odom, followed) for c in obs.candidates],
+        "schema_version": obs.schema_version,
+        # DynamicGap's own pick (position in candidates); None before schema 2
+        "dg_pick": getattr(obs, "dg_pick_idx", None),
         "label": label_idx,
     }
 
@@ -166,7 +204,7 @@ def build_examples(session, samples, outcomes, opts, episodes=None):
                 counts["duplicate"] += 1
                 continue
             seen.add(key)
-            ex = example(session, obs, tick, matches[0])
+            ex = example(session, obs, tick, matches[0], previous_selection(ticks, j))
             ex["collision_episode"] = collided
             examples.append(ex)
             counts["kept"] += 1
