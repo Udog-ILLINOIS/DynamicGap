@@ -409,6 +409,7 @@ def session_report(samples, outcomes):
         "ticks_with_choice": sum(1 for s in usable if sum(c.feasible for c in s.candidates) > 1),
         "cursor_ticks": sum(1 for s in samples if s.source == SOURCE_GAP_CURSOR),
         "click_to_move_ticks": sum(1 for s in samples if s.source == SOURCE_CLICK_TO_MOVE),
+        "model_ticks": sum(1 for s in samples if s.source == SOURCE_MODEL),
         "hold_still_ticks": sum(1 for s in samples if s.hold_still),
         "episodes": len(outcomes),
         "results": results,

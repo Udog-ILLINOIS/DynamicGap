@@ -26,6 +26,7 @@
 #include <dynamic_gap/utils/Trajectory.h>
 #include <dynamic_gap/utils/Utils.h>
 #include <dynamic_gap/utils/ManualSelection.h>
+#include <dynamic_gap/learned_selection/LearnedGapScorer.h>
 #include <dynamic_gap/gap_association/GapPointAssociator.h>
 #include <dynamic_gap/gap_detection/GapDetector.h>
 #include <dynamic_gap/gap_propagation/GapPropagator.h>
@@ -193,6 +194,18 @@ namespace dynamic_gap
 
             int selectedManualCandidateId_ = -1;
             bool manualSelectionMode_ = false;
+
+            bool learnedSelectionMode_ = false; /**< /learned_gap_scorer: the learned scorer selects the gap */
+            LearnedGapScorer learnedGapScorer_;
+            std::string learnedGapScorerError_; /**< why the scorer did not load */
+            bool sampleObservationFilled_ = false; /**< this tick's sample already has its robot state */
+
+            /**
+            * \brief Whether the operator (manual mode) or the learned scorer selects
+            * the gap instead of DynamicGap: the tick is recorded, and with nothing
+            * selected the robot holds still
+            */
+            bool externalSelectionMode() const { return manualSelectionMode_ || learnedSelectionMode_; }
             geometry_msgs::PointStamped cursorPosOdomFrame_;
             bool hasCursorPos_ = false;
             geometry_msgs::PointStamped trajCreationPointOdomFrame_;
@@ -257,6 +270,38 @@ namespace dynamic_gap
                                        const std::vector<float> & gapTrajTerminalPoseCosts,
                                        manual_gap_msgs::ManualGapSample & sample,
                                        Trajectory & chosenTraj);
+
+            /**
+            * \brief One candidate of the tick as recorded and as the learned scorer reads it
+            * \param i index into the tick's gap tubes / trajectories
+            * \param displayId number drawn next to the candidate, -1 if not shown
+            */
+            manual_gap_msgs::ManualGapCandidate buildCandidateMsg(const size_t & i,
+                                                                  const std::vector<GapTube *> & gapTubes,
+                                                                  const std::vector<Trajectory> & gapTrajs,
+                                                                  const std::vector<std::vector<float>> & gapTrajPoseCosts,
+                                                                  const std::vector<float> & gapTrajTerminalPoseCosts,
+                                                                  const int & displayId);
+
+            /**
+            * \brief Learned mode: build the tick's candidates in the sample, score them
+            * with the learned scorer and follow the highest-scoring selectable gap
+            * whose DynamicGap cost is finite. A different gap is taken as soon as it
+            * scores higher. No usable choice: trajFlag NONE (the robot holds still)
+            * \return position in sample.candidates of the choice, -1 if none
+            */
+            int selectLearnedTrajectory(int & trajFlag,
+                                        const std::vector<GapTube *> & gapTubes,
+                                        const std::vector<Trajectory> & gapTrajs,
+                                        const std::vector<std::vector<float>> & gapTrajPoseCosts,
+                                        const std::vector<float> & gapTrajTerminalPoseCosts,
+                                        manual_gap_msgs::ManualGapSample & sample,
+                                        Trajectory & chosenTraj);
+
+            /**
+            * \brief Robot pose, velocity, goal and local waypoint of the sample, now
+            */
+            void fillSampleObservation(manual_gap_msgs::ManualGapSample & sample);
 
             /**
             * \brief Record the cursor state in the sample (caller holds manualSelectionMutex_)

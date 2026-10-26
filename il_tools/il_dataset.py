@@ -97,6 +97,7 @@ def candidate_features(c, pose, followed):
     nan = float("nan")
     return {
         "traj_idx": c.traj_idx,
+        "left_model_id": c.left_model_id, "right_model_id": c.right_model_id,
         "feasible": c.feasible,
         "shown": c.shown,
         "tube_len": c.tube_len,
@@ -115,6 +116,8 @@ def candidate_features(c, pose, followed):
         "dg_cost": getattr(c, "dg_cost", None),
         "dg_terminal_cost": getattr(c, "dg_terminal_cost", None),
         "dg_clearance_cost": getattr(c, "dg_clearance_cost", None),
+        # the learned scorer's score (schema 3, NaN unless it ran); None before
+        "model_score": getattr(c, "model_score", None),
     }
 
 

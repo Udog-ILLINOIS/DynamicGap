@@ -80,5 +80,16 @@ namespace dynamic_gap
             static Trajectory currentTraj(Planner & planner) { return planner.currentTraj_; }
             static ros::Duration currentLifespan(Planner & planner) { return planner.currentTrajLifespan_; }
             static void setCurrentTraj(Planner & planner, const Trajectory & traj) { planner.currentTraj_ = traj; }
+
+            static void setLearnedMode(Planner & planner, bool value) { planner.learnedSelectionMode_ = value; }
+            static bool loadLearnedScorer(Planner & planner, const std::string & path)
+            { return planner.learnedGapScorer_.load(path, planner.learnedGapScorerError_); }
+            static const LearnedGapScorer & learnedScorer(Planner & planner) { return planner.learnedGapScorer_; }
+            static int selectLearnedTrajectory(Planner & planner, int & trajFlag, const std::vector<GapTube *> & gapTubes,
+                                               const std::vector<Trajectory> & gapTrajs,
+                                               const std::vector<std::vector<float>> & poseCosts,
+                                               const std::vector<float> & terminalCosts,
+                                               manual_gap_msgs::ManualGapSample & sample, Trajectory & chosenTraj)
+            { return planner.selectLearnedTrajectory(trajFlag, gapTubes, gapTrajs, poseCosts, terminalCosts, sample, chosenTraj); }
     };
 }
