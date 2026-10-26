@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Run an il_goal_cursor collection suite unattended, one stage (map) per launch,
+restarting a stage when move_base_flex dies.
+
+move_base_flex (mbf_costmap_nav) can segfault in libmbf_abstract_server at an
+episode reset; the simulation keeps running, the planner never ticks again and
+every remaining episode times out with the robot still. This driver launches
+each stage of SUITE on its own (a one-stage suite written next to it), watches
+for mbf_costmap_nav to disappear, and then stops the launch and starts the
+stage again for the episodes not yet finished (each launch is its own session).
+
+Usage (workspace sourced):
+  il_goal_cursor_collect SUITE.yaml --data-root /home/abdel/il_data [--operator goal_cursor]
+                         [--stages map_empty_medium_goal_cursor,...] [--log-dir DIR]
+SUITE is a file name in arena_bringup/configs/benchmark/suites.
+"""
+
+import argparse
+import csv
+import glob
+import os
+import subprocess
+import sys
+import time
+
+import rospkg
+import yaml
+
+LAUNCH_PATTERN = "roslaunch arena_bringup"
+PLANNER_PATTERN = "mbf_costmap_nav/mbf_costmap_nav"
+
+
+def running(pattern):
+    return subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.DEVNULL).returncode == 0
+
+
+def stop_launch(timeout=60):
+    """SIGINT the launch (and its relaunch), then SIGTERM what is left."""
+    subprocess.run(["pkill", "-INT", "-f", LAUNCH_PATTERN])
+    end = time.time() + timeout
+    while time.time() < end and running(LAUNCH_PATTERN):
+        time.sleep(1)
+    for pattern in (LAUNCH_PATTERN, "rosmaster", "flatland_server", PLANNER_PATTERN):
+        subprocess.run(["pkill", "-TERM", "-f", pattern])
+    time.sleep(3)
+
+
+def finished_episodes(session_dir):
+    """Episodes of a session that ended: an episode ends when the next one begins."""
+    path = os.path.join(session_dir, "episodes.csv")
+    if not os.path.exists(path):
+        return 0
+    with open(path) as f:
+        begins = [int(r["episode"]) for r in csv.DictReader(f) if r["event"] == "begin"]
+    return max(begins, default=0)
+
+
+def run_stage(stage, suites_dir, args, log):
+    """Run one stage until all its episodes are finished."""
+    remaining, attempt = stage["episodes"], 0
+    while remaining > 0:
+        attempt += 1
+        name = "{}_r{}".format(stage["name"], attempt) if attempt > 1 else stage["name"]
+        suite_file = "il_goal_cursor_collect_{}.yaml".format(name)
+        with open(os.path.join(suites_dir, suite_file), "w") as f:
+            yaml.safe_dump({"stages": [dict(stage, name=name, episodes=remaining)]}, f, sort_keys=False)
+        before = set(glob.glob(os.path.join(args.data_root, "il_gap_selection", "*_" + name)))
+        out = open(os.path.join(args.log_dir, "launch_{}.log".format(name)), "w")
+        print("{} {}: launching for {} episode(s)".format(time.strftime("%H:%M:%S"), name, remaining), file=log, flush=True)
+        subprocess.Popen(["roslaunch", "arena_bringup", "start_trials.launch", "man_gap:=true", "il_goal_cursor:=true",
+                          "tm_modules:=benchmark", "benchmark_suite:=" + suite_file, "record_il:=true",
+                          "il_data_root:=" + args.data_root, "il_operator:=" + args.operator],
+                         stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        seen_planner, crashed, missing_since = False, False, None
+        time.sleep(20)
+        # the benchmark's first launch relaunches itself through delay_restart.py
+        while running(LAUNCH_PATTERN) or running("rosmaster") or running("delay_restart.py"):
+            if running(PLANNER_PATTERN):
+                seen_planner, missing_since = True, None
+            elif seen_planner:
+                # gone for 15 s (a relaunch also stops it briefly)
+                missing_since = missing_since or time.time()
+                if time.time() - missing_since > 15:
+                    crashed = True
+                    break
+            time.sleep(5)
+        sessions = set(glob.glob(os.path.join(args.data_root, "il_gap_selection", "*_" + name))) - before
+        done = sum(finished_episodes(s) for s in sessions)
+        if crashed:
+            print("{} {}: move_base_flex died after {} finished episode(s); restarting".format(
+                time.strftime("%H:%M:%S"), name, done), file=log, flush=True)
+            stop_launch()
+        else:
+            # the suite ended (the benchmark kills rosmaster): all episodes ran
+            done = remaining
+            print("{} {}: finished".format(time.strftime("%H:%M:%S"), name), file=log, flush=True)
+        remaining -= done
+        if crashed and done == 0 and attempt >= 3:
+            print("{} {}: no progress in 3 launches, skipping the stage".format(time.strftime("%H:%M:%S"), name),
+                  file=log, flush=True)
+            return
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("suite")
+    parser.add_argument("--data-root", required=True)
+    parser.add_argument("--operator", default="goal_cursor")
+    parser.add_argument("--stages", default="", help="comma-separated stage names to run (default: all)")
+    parser.add_argument("--log-dir", default=None, help="launch logs (default: DATA_ROOT)")
+    args = parser.parse_args()
+    args.log_dir = args.log_dir or args.data_root
+    suites_dir = os.path.join(rospkg.RosPack().get_path("arena_bringup"), "configs", "benchmark", "suites")
+    with open(os.path.join(suites_dir, args.suite)) as f:
+        stages = yaml.safe_load(f)["stages"]
+    wanted = [s for s in args.stages.split(",") if s]
+    if wanted:
+        stages = [s for s in stages if s["name"] in wanted]
+    if running(LAUNCH_PATTERN) or running("rosmaster"):
+        sys.exit("a launch or rosmaster is already running")
+    for stage in stages:
+        run_stage(stage, suites_dir, args, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
