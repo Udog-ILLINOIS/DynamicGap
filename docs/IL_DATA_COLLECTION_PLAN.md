@@ -960,6 +960,7 @@ out of scope for this pass by decision; documented, not changed.
 | PL-48 | HIGH | DynamicGap's own pick and costs not recorded (M-03); dataset lacks yaw, `is_current`, `shown`, `tube_len` | dynamic_gap, arena-rosnav | Fixed `50e7acd`, `1debace` (dataset), arena-rosnav `e9054b511`, [doc](il_pipeline_fixes/48-dynamic-gap-pick.md) |
 | PL-49 | MED | Operator data has ~4 goal directions; no way to collect goal-directed choices without hours of driving | dynamic_gap, arena-rosnav | Done `66b8d9e`, arena-rosnav `6d642c737`, `949731ac7`, [doc](il_pipeline_fixes/49-goal-cursor-operator.md) |
 | PL-50 | HIGH | Gap scorer's terminal-cost term dropped on schema-1 data, so no pull toward the goal | dynamic_gap | Fixed `2afe89f`, [doc](il_pipeline_fixes/50-terminal-cost-term.md) |
+| PL-51 | HIGH | Benchmark stages on the same map ran one episode late (first stage twice, last never) | arena-rosnav | Fixed arena-rosnav `caa8417c4`, [doc](il_pipeline_fixes/51-benchmark-stage-one-episode-late.md) |
 
 Approved behaviour changes and the cursor-continuity requirement (a still
 mouse keeps its selection; nothing may require mouse movement) are recorded
