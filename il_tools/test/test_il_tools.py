@@ -183,6 +183,11 @@ class CheckTest(SessionTestCase):
                          il_bags.episode_settings([{"event": "reset", "episode": "0"}],
                                                   {"timeout": 60.0, "goal_radius": 1.0}))
 
+    def test_goal_radius_of_the_robot_manager(self):
+        # the global goal_radius if set, else the task generator's
+        self.assertEqual(0.4, il_bags.task_settings({"goal_radius": 0.4, "task_generator_server": {"goal_radius": 0.5}})["goal_radius"])
+        self.assertEqual(0.5, il_bags.task_settings({"task_generator_server": {"goal_radius": 0.5}})["goal_radius"])
+
     def test_active_bag_detected(self):
         self.write(self.good_samples())
         open(os.path.join(self.dir, "session_1.bag.active"), "w").close()

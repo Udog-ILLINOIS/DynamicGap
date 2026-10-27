@@ -75,16 +75,15 @@ def stickiness(examples, picks):
     without model ids (older datasets). A gap without identity is a gap of its own,
     as the planner treats it."""
     same = lambda a, b: a is not None and a == b  # noqa: E731
+    # whether the dataset has model ids at all (stops at the first known one)
+    if not any(il_model.gap_identity(c) is not None for ex in examples for c in ex["candidates"]):
+        return {"switch_rate": None, "blip_rate": None}
     switches = blips = steps = 0
-    known = False
     for seq in sequences(examples):
         ids = [il_model.gap_identity(examples[i]["candidates"][picks[i]]) for i in seq]
-        known = known or any(x is not None for x in ids)
         steps += max(len(ids) - 1, 0)
         switches += sum(not same(a, b) for a, b in zip(ids, ids[1:]))
         blips += sum(same(a, c) and not same(a, b) for a, b, c in zip(ids, ids[1:], ids[2:]))
-    if not known:
-        return {"switch_rate": None, "blip_rate": None}
     return {"switch_rate": switches / max(steps, 1), "blip_rate": blips / max(steps, 1)}
 
 

@@ -191,6 +191,10 @@ class TrainTest(unittest.TestCase):
         # (1,2) -> unknown -> (1,2): a blip
         exs[2]["candidates"][0]["left_model_id"], exs[2]["candidates"][0]["right_model_id"] = 1, 2
         self.assertEqual(0.5, il_train.stickiness(exs, [0, 0, 0])["blip_rate"])
+        # ids recorded, but every pick is a gap without identity: switches every step
+        for ex in exs:
+            ex["candidates"][0]["left_model_id"] = -1
+        self.assertEqual(1.0, il_train.stickiness(exs, [0, 0, 0])["switch_rate"])
 
     def test_stickiness(self):
         rng = random.Random(0)

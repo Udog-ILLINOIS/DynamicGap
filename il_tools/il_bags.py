@@ -100,10 +100,13 @@ def load_episode_events(session_dir):
 
 
 def task_settings(params):
+    """Timeout and goal radius of a session. The robot manager takes its goal
+    radius from the global goal_radius param, else (unset in every launch) from
+    the task generator's config when it starts: the server's goal_radius."""
     server = params.get("task_generator_server", {}) or {}
     timeout = server.get("timeout", DEFAULT_TIMEOUT)
     return {
-        "goal_radius": float(server.get("goal_radius", DEFAULT_GOAL_RADIUS)),
+        "goal_radius": float(params.get("goal_radius", server.get("goal_radius", DEFAULT_GOAL_RADIUS))),
         "timeout": math.inf if timeout is None or timeout < 0 else float(timeout),
     }
 
@@ -286,7 +289,7 @@ def episode_spans(events):
 def episode_settings(events, settings):
     """{episode: task settings}: the timeout from episodes.csv's reset rows (benchmark
     stages on one map run in one session with their own timeout), else the session's.
-    The goal radius is the session's: the robot manager reads it once at startup."""
+    The goal radius is the session's: the robot manager reads it once, at startup."""
     per_episode = {}
     for e in events:
         if e.get("event") != "reset":
