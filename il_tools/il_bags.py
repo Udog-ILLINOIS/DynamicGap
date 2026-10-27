@@ -168,7 +168,7 @@ def rule_selection(sample, followed, max_bearing, switch_ratio):
         return -1
 
     nearest = min(selectable, key=dist)  # ties go to the lower index, as in the planner
-    current = next((i for i in selectable if identity(sample.candidates[i]) == followed), -1)
+    current = next((i for i in selectable if followed is not None and identity(sample.candidates[i]) == followed), -1)
     if current < 0 or nearest == current:
         return nearest
     return nearest if dist(nearest) < switch_ratio * dist(current) else current
@@ -231,12 +231,20 @@ def is_usable_label(sample):
             and not sample.in_reset_window and sample.selected_idx >= 0)
 
 
+def known_identity(left_model_id, right_model_id):
+    """A gap's identity across ticks, None if a gap point has no model (id -1): the
+    planner then cannot tell it from another gap (hasModelIDs)."""
+    if left_model_id == -1 or right_model_id == -1:
+        return None
+    return (left_model_id, right_model_id)
+
+
 def identity(candidate):
-    return (candidate.left_model_id, candidate.right_model_id)
+    return known_identity(candidate.left_model_id, candidate.right_model_id)
 
 
 def selected_identity(sample):
-    return (sample.selected_left_model_id, sample.selected_right_model_id)
+    return known_identity(sample.selected_left_model_id, sample.selected_right_model_id)
 
 
 def stamp(t):

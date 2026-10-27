@@ -168,6 +168,22 @@ class ScorerTest(unittest.TestCase):
 
 
 class TrainTest(unittest.TestCase):
+    def test_unknown_identity_is_not_a_switch(self):
+        rng = random.Random(5)
+        exs = [example(rng, n=2, episode=0) for _ in range(3)]
+        for ex in exs:
+            ex["label"] = 0
+            ex["dg_pick"] = None
+        ids = [(1, 2), (-1, -1), (3, 4)]
+        for ex, (left, right) in zip(exs, ids):
+            ex["candidates"][0]["left_model_id"], ex["candidates"][0]["right_model_id"] = left, right
+        self.assertIsNone(il_model.gap_identity(exs[1]["candidates"][0]))
+        # (1,2) -> unknown -> (3,4): no step between two known gaps
+        self.assertEqual([1.0, 1.0, 1.0], il_model.decision_weights(exs, 1.0, 0.0))
+        for t, ex in enumerate(exs):
+            ex["obs_tick"] = t
+        self.assertEqual(0.0, il_train.stickiness(exs, [0, 0, 0])["switch_rate"])
+
     def test_stickiness(self):
         rng = random.Random(0)
         exs = [example(rng, n=3, label=l) for l in (0, 0, 1, 0)]

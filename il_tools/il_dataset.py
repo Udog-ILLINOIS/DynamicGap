@@ -197,7 +197,8 @@ def build_examples(session, samples, outcomes, opts, episodes=None):
                 counts["obs_invalid"] += 1
                 continue
             target = il_bags.selected_identity(tick)
-            matches = [k for k, c in enumerate(obs.candidates) if c.feasible and il_bags.identity(c) == target]
+            matches = [k for k, c in enumerate(obs.candidates)
+                       if target is not None and c.feasible and il_bags.identity(c) == target]
             if not matches:
                 counts["identity_lost"] += 1
                 continue

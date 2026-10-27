@@ -2666,17 +2666,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
                 boost::mutex::scoped_lock lock(manualSelectionMutex_);
                 publishManualCandidateMarkers(selectedIdx);
             }
-
-            // DynamicGap's own pick, recorded only: local outputs and no
-            // comparison block, so the robot still follows the operator
-            int dgTrajFlag = NONE;
-            int dgTrajIdx = -1;
-            pickTraj(dgTrajFlag, dgTrajIdx,
-                    gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
-                    ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
-                    idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
-            // candidates[] holds every gap trajectory in order, so the gap index is the position
-            sample.dg_pick_idx = (dgTrajFlag == GAP) ? dgTrajIdx : -1;
         }
         else if (learnedSelectionMode_)
         {
@@ -2685,15 +2674,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             selectLearnedTrajectory(trajFlag, gapTubes, gapTrajs,
                                     gapTrajPoseCosts, gapTrajTerminalPoseCosts,
                                     sample, chosenTraj);
-
-            // DynamicGap's own pick, recorded only
-            int dgTrajFlag = NONE;
-            int dgTrajIdx = -1;
-            pickTraj(dgTrajFlag, dgTrajIdx,
-                    gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
-                    ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
-                    idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
-            sample.dg_pick_idx = (dgTrajFlag == GAP) ? dgTrajIdx : -1;
         }
         else
         {
@@ -2701,6 +2681,20 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
                     gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
                     ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
                     idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
+        }
+
+        if (externalSelectionMode())
+        {
+            // DynamicGap's own pick, recorded only: local outputs and no
+            // comparison block, so the robot still follows the operator or scorer
+            int dgTrajFlag = NONE;
+            int dgTrajIdx = -1;
+            pickTraj(dgTrajFlag, dgTrajIdx,
+                    gapTrajs, gapTrajPoseCosts, gapTrajTerminalPoseCosts,
+                    ungapTrajs, ungapTrajPoseCosts, ungapTrajTerminalPoseCosts,
+                    idlingTrajs, idlingPathPoseCosts, idlingPathTerminalPoseCosts);
+            // candidates[] holds every gap trajectory in order, so the gap index is the position
+            sample.dg_pick_idx = (dgTrajFlag == GAP) ? dgTrajIdx : -1;
         }
 
         timeKeeper_->stopTimer(TRAJ_PICK);

@@ -76,8 +76,9 @@ def stickiness(examples, picks):
     for seq in sequences(examples):
         ids = [il_model.gap_identity(examples[i]["candidates"][picks[i]]) for i in seq]
         steps += max(len(ids) - 1, 0)
-        switches += sum(a != b for a, b in zip(ids, ids[1:]))
-        blips += sum(a == c != b for a, b, c in zip(ids, ids[1:], ids[2:]))
+        # a step with an unknown gap (None) is neither a switch nor a blip
+        switches += sum(None not in (a, b) and a != b for a, b in zip(ids, ids[1:]))
+        blips += sum(None not in (a, b, c) and a == c != b for a, b, c in zip(ids, ids[1:], ids[2:]))
     return {"switch_rate": switches / max(steps, 1), "blip_rate": blips / max(steps, 1)}
 
 

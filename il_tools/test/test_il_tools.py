@@ -182,7 +182,8 @@ class CheckTest(SessionTestCase):
     def follow(self, s, idx):
         s.source = s.SOURCE_GAP_CURSOR
         s.selected_idx = idx
-        s.selected_left_model_id, s.selected_right_model_id = il_bags.identity(s.candidates[idx])
+        c = s.candidates[idx]
+        s.selected_left_model_id, s.selected_right_model_id = c.left_model_id, c.right_model_id
 
     def test_sticky_selection_reproduced(self):
         self.use_selection_rule()
@@ -201,6 +202,22 @@ class CheckTest(SessionTestCase):
         for s in samples[10:20]:
             s.cursor_odom.y = -0.9  # clearly nearer the lower gap
             self.follow(s, 0)  # wrong: the planner switches
+        self.write(samples)
+        self.assertFalse(self.checks()[0]["selection reproducible"])
+        for s in samples[10:20]:
+            self.follow(s, 1)
+        self.write(samples)
+        self.assertTrue(self.checks()[0]["selection reproducible"])
+
+    def test_gap_without_model_is_not_held(self):
+        # the planner cannot recognise a gap whose point has no model (id -1): it takes
+        # the nearest gap, as when nothing is followed
+        self.use_selection_rule()
+        samples = self.good_samples()
+        for s in samples[10:20]:
+            s.cursor_odom.y = -0.1  # slightly nearer the lower gap
+            s.candidates[0].right_model_id = -1
+            self.follow(s, 0)  # held: what the planner would do with known ids
         self.write(samples)
         self.assertFalse(self.checks()[0]["selection reproducible"])
         for s in samples[10:20]:

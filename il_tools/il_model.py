@@ -123,7 +123,10 @@ def featurize(ex):
 
 
 def gap_identity(c):
-    return (c.get("left_model_id"), c.get("right_model_id"))
+    """None if unknown: no model ids recorded (older datasets) or a gap point without
+    a model (id -1), which the planner cannot tell from another gap."""
+    ids = (c.get("left_model_id"), c.get("right_model_id"))
+    return None if None in ids or -1 in ids else ids
 
 
 def decision_weights(examples, switch_weight=1.0, disagree_weight=1.0):
@@ -137,7 +140,7 @@ def decision_weights(examples, switch_weight=1.0, disagree_weight=1.0):
         w = 1.0
         key = (ex["session"], ex["episode"])
         ident = gap_identity(ex["candidates"][ex["label"]])
-        if ident[0] is not None and key in prev and prev[key] != ident:
+        if ident is not None and prev.get(key) is not None and prev[key] != ident:
             w += switch_weight
         prev[key] = ident
         if ex.get("dg_pick") is not None and ex["dg_pick"] >= 0 and ex["dg_pick"] != ex["label"]:
