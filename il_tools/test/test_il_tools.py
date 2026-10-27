@@ -381,11 +381,32 @@ class DatasetTest(SessionTestCase):
             yaml.safe_dump({"root": os.path.dirname(self.dir),
                             "episodes": {"corner": [{"session": os.path.basename(self.dir), "episode": 1}]}}, f)
         selection = il_dataset.load_set(set_file)
-        self.assertEqual(selection, {self.dir: [1]})
+        self.assertEqual(selection, {self.dir: {1: None}})
         out = os.path.join(self.dir, "out")
         summary = il_dataset.build_dataset(list(selection), out, {"splits": {"train": 1.0}}, selection=selection)
         counts = summary["sessions"][os.path.basename(self.dir)]["counts"]
         self.assertEqual((counts["not_in_set"], counts["collision_episode"], counts["kept"]), (20, 0, 20))
+
+    def test_episode_set_cuts_ticks_before_from_tick(self):
+        # a collision right after the spawn: the episode is kept from tick 25 on
+        samples = self.good_samples()
+        samples[21].status = samples[21].STATUS_COLLIDING
+        self.write(samples)
+        set_file = os.path.join(self.dir, "set.yaml")
+        with open(set_file, "w") as f:
+            yaml.safe_dump({"root": os.path.dirname(self.dir),
+                            "episodes": {"g": [{"session": os.path.basename(self.dir), "episode": 1, "from_tick": 25}]}}, f)
+        selection = il_dataset.load_set(set_file)
+        self.assertEqual(selection, {self.dir: {1: 25}})
+        out = os.path.join(self.dir, "out")
+        summary = il_dataset.build_dataset(list(selection), out, {"splits": {"train": 1.0}, "lag_s": 0.15},
+                                           selection=selection)
+        counts = summary["sessions"][os.path.basename(self.dir)]["counts"]
+        with gzip.open(os.path.join(out, "train.jsonl.gz"), "rt") as f:
+            examples = [json.loads(line) for line in f]
+        self.assertTrue(examples)
+        self.assertTrue(all(ex["obs_tick"] >= 25 for ex in examples))
+        self.assertGreater(counts["cut"], 0)
 
     def test_observation_in_reset_window_or_not_planned_dropped(self):
         samples = self.good_samples()

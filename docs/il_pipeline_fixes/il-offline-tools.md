@@ -24,7 +24,13 @@ Episode outcome: `GOAL_REACHED` if the goal (robot frame) at the episode's last 
 ```
 il_tools/il_build_dataset --out DIR [--lag S] [--max-cursor-dist M] [--max-bearing-diff RAD]
                           [--min-tie-margin M] [--keep-collision-episodes] [--seed S] SESSION_DIR [...]
+il_tools/il_build_dataset --out DIR --set SET_FILE [options]
 ```
+An episode set file (`il_data/sets/*.yaml`: `root`, then `episodes` grouped under any keys,
+each `{session, episode}`) uses only those episodes, collision episodes included. An entry's
+optional `from_tick: N` drops that episode's ticks before `tick_seq` N, as labels and as
+observations (counted as `cut`), e.g. a collision right after the spawn; the gap followed
+before is then unknown for the first kept observation.
 Writes `train/val/test.jsonl.gz` (one example per line) and `dataset.yaml` (options, per-session counts of every drop reason — threshold, collision episode, no/too old/invalid observation tick, identity lost, duplicate — and reports). For each usable label tick t:
 - thresholds (from the pilot): cursor distance and bearing difference to the selected candidate, and the margin to the second-nearest candidate;
 - reaction lag (DG-09): the observation is the latest tick of the same episode at least `--lag` seconds of wall time before t; it is dropped if it is more than `max_lag_error_s` (0.25 s) older than t − lag (a hole in the samples), or if it is not a planned tick or lies in a reset window; the label is the index, in that tick's candidates, of the gap with the same identity (left and right model ids) as the one selected at t; if the gap does not exist there, or has no identity (a model id -1), the example is dropped; with `--lag 0` the observation is the label tick and the label is its recorded `selected_idx`; two label ticks that give the same observation tick and label produce one example;
