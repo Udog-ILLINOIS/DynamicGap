@@ -897,8 +897,9 @@ planner, task generator, launch files, mbf config, and the
 the 80% (manual) and 50–60% (autonomous) success figures, so treat those
 figures as unreliable until PL-01 to PL-04 are fixed.
 
-**Fix workflow.** Each fix lives on branch `il-data-pipeline-fixes` in the
-repo it touches and is pushed to the Udog-ILLINOIS fork. Each fixed issue has
+**Fix workflow.** Each fix lives on branch `imitation_learning` in the
+repo it touches and is pushed to the Udog-ILLINOIS fork (fixes up to PL-51
+were made on `il-data-pipeline-fixes`, where `imitation_learning` starts). Each fixed issue has
 a doc in `docs/il_pipeline_fixes/NN-*.md` (what changed, why, effects, test)
 and its own test.
 

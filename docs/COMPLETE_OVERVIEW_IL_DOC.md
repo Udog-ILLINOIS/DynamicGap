@@ -906,7 +906,7 @@ One doc per fix in `docs/il_pipeline_fixes/`; status and commits in plan 3.1.
 
 ## B. System map
 
-**Repos** (branch `il-data-pipeline-fixes` in each; commits per session in
+**Repos** (branch `imitation_learning` in each, started from `il-data-pipeline-fixes`; commits per session in
 `versions.yaml`):
 
 | Repo | Path under `src/` | IL parts |
