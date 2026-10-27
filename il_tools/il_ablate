@@ -101,8 +101,8 @@ def summarize(rows, out, last_val):
         print("{:22s} {:5d}  {}  {}  {}  {}".format(s["variant"], s["seeds"], *[
             "  -          " if s[m + "_mean"] is None else "{:.3f} ± {:.3f}".format(s[m + "_mean"], s[m + "_std"])
             for m in ("top1", "top1_at_switches", "nll", "model_switch_rate")]))
-    print("operator switch rate {:.3f}, chance top1 {:.3f}\n".format(last_val["operator_switch_rate"],
-                                                                     last_val["chance"]), flush=True)
+    print("operator {}, chance top1 {:.3f}\n".format(il_train.fmt(last_val, ("operator_switch_rate",)),
+                                                    last_val["chance"]), flush=True)
 
 
 if __name__ == "__main__":

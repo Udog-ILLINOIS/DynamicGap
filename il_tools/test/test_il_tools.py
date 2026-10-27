@@ -165,9 +165,9 @@ class CheckTest(SessionTestCase):
         # one session over two benchmark stages: episode 0 runs with a 90 s timeout,
         # episode 1 with 120 s; params.yaml has the first stage's (60 s here)
         with open(os.path.join(self.dir, "episodes.csv"), "w") as f:
-            f.write("event,episode,wall_time,sim_time,start,goal,timeout,goal_radius\n"
-                    "reset,0,0,0.0,,,90.0,1.0\nbegin,1,0,95.0,,,90.0,1.0\n"
-                    "reset,1,0,96.0,,,120.0,1.0\nbegin,2,0,191.0,,,120.0,1.0\n")
+            f.write("event,episode,wall_time,sim_time,start,goal,timeout\n"
+                    "reset,0,0,0.0,,,90.0\nbegin,1,0,95.0,,,90.0\n"
+                    "reset,1,0,96.0,,,120.0\nbegin,2,0,191.0,,,120.0\n")
         events = il_bags.load_episode_events(self.dir)
         settings = il_bags.episode_settings(events, {"timeout": 60.0, "goal_radius": 1.0})
         self.assertEqual({0: {"timeout": 90.0, "goal_radius": 1.0}, 1: {"timeout": 120.0, "goal_radius": 1.0}},

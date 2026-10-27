@@ -184,6 +184,10 @@ class TrainTest(unittest.TestCase):
             ex["obs_tick"] = t
         # a gap without identity is a gap of its own: two switches
         self.assertEqual(1.0, il_train.stickiness(exs, [0, 0, 0])["switch_rate"])
+        # no model ids at all (older datasets): unknown
+        bare = [dict(ex, candidates=[{k: v for k, v in c.items() if not k.endswith("model_id")}
+                                     for c in ex["candidates"]]) for ex in exs]
+        self.assertEqual({"switch_rate": None, "blip_rate": None}, il_train.stickiness(bare, [0, 0, 0]))
         # (1,2) -> unknown -> (1,2): a blip
         exs[2]["candidates"][0]["left_model_id"], exs[2]["candidates"][0]["right_model_id"] = 1, 2
         self.assertEqual(0.5, il_train.stickiness(exs, [0, 0, 0])["blip_rate"])

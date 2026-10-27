@@ -71,18 +71,20 @@ def sequences(examples):
 
 
 def stickiness(examples, picks):
-    """Switch rate and blip rate of a sequence of picks (candidate positions)."""
+    """Switch rate and blip rate of a sequence of picks (candidate positions); None
+    without model ids (older datasets). A gap without identity is a gap of its own,
+    as the planner treats it."""
+    same = lambda a, b: a is not None and a == b  # noqa: E731
     switches = blips = steps = 0
-    if all(il_model.gap_identity(c) is None for ex in examples for c in ex["candidates"]):
-        # no model ids recorded (older datasets): unknown
-        return {"switch_rate": 0.0, "blip_rate": 0.0}
+    known = False
     for seq in sequences(examples):
         ids = [il_model.gap_identity(examples[i]["candidates"][picks[i]]) for i in seq]
+        known = known or any(x is not None for x in ids)
         steps += max(len(ids) - 1, 0)
-        # a gap without identity (None) is a gap of its own, as the planner treats it
-        same = lambda a, b: a is not None and a == b  # noqa: E731
         switches += sum(not same(a, b) for a, b in zip(ids, ids[1:]))
         blips += sum(same(a, c) and not same(a, b) for a, b, c in zip(ids, ids[1:], ids[2:]))
+    if not known:
+        return {"switch_rate": None, "blip_rate": None}
     return {"switch_rate": switches / max(steps, 1), "blip_rate": blips / max(steps, 1)}
 
 
@@ -197,9 +199,9 @@ def train(data_dir, cfg=None, out_dir=None, log=sys.stdout, log_every=1, data=No
     if model.residual:
         result["dg_weight"] = model.dg_weight.tolist()
         print("  DynamicGap cost weights: terminal {:.3f}, clearance {:.3f}".format(*result["dg_weight"]), file=log)
-    print("  operator: switch rate {:.3f}, blip rate {:.3f} | model: switch rate {:.3f}, blip rate {:.3f}".format(
-        best["val"]["operator_switch_rate"], best["val"]["operator_blip_rate"],
-        best["val"]["model_switch_rate"], best["val"]["model_blip_rate"]), file=log, flush=True)
+    print("  operator: {} | model: {}".format(
+        fmt(best["val"], ("operator_switch_rate", "operator_blip_rate")),
+        fmt(best["val"], ("model_switch_rate", "model_blip_rate"))), file=log, flush=True)
     if out_dir:
         save(model, result, history, out_dir, data_dir)
         export_scorer(model, os.path.join(out_dir, "gap_scorer.json"))

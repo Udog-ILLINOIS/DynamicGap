@@ -996,6 +996,20 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         return false;
     }
 
+    namespace
+    {
+        // a gap trajectory is feasible if it has a path (infeasible ones are left empty)
+        bool isFeasibleTraj(const Trajectory & traj) { return !traj.getPathOdomFrame().poses.empty(); }
+
+        std::vector<bool> feasibleTrajs(const std::vector<Trajectory> & trajs)
+        {
+            std::vector<bool> feasible(trajs.size());
+            for (size_t i = 0; i < trajs.size(); i++)
+                feasible[i] = isFeasibleTraj(trajs.at(i));
+            return feasible;
+        }
+    }
+
     int Planner::selectManualTrajectory(int & trajFlag,
                                         const std::vector<GapTube *> & gapTubes,
                                         const std::vector<Trajectory> & gapTrajs,
@@ -1014,9 +1028,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         //////// one candidate list per tick: drawn, selected from and recorded ////////
         currentManualCandidates_.clear();
 
-        std::vector<bool> feasible(gapTrajs.size());
-        for (size_t i = 0; i < gapTrajs.size(); i++)
-            feasible[i] = !gapTrajs.at(i).getPathOdomFrame().poses.empty();
+        std::vector<bool> feasible = feasibleTrajs(gapTrajs);
 
         // every feasible candidate is shown
         std::vector<int> displayIds = denseDisplayIds(feasible);
@@ -1194,7 +1206,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         cMsg.display_id = displayId;
         cMsg.left_model_id = leftModel ? leftModel->getID() : -1;
         cMsg.right_model_id = rightModel ? rightModel->getID() : -1;
-        cMsg.feasible = !path.poses.empty();
+        cMsg.feasible = isFeasibleTraj(gapTrajs.at(i));
         cMsg.shown = displayId >= 0;
         cMsg.tube_len = (i < gapTubes.size()) ? gapTubes.at(i)->size() : 0;
 
@@ -1278,9 +1290,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         // the model reads the sample, as recorded: robot state at this tick
         fillSampleObservation(sample);
 
-        std::vector<bool> feasible(gapTrajs.size());
-        for (size_t i = 0; i < gapTrajs.size(); i++)
-            feasible[i] = !gapTrajs.at(i).getPathOdomFrame().poses.empty();
+        std::vector<bool> feasible = feasibleTrajs(gapTrajs);
         std::vector<int> displayIds = denseDisplayIds(feasible);
         for (size_t i = 0; i < gapTrajs.size(); i++)
             sample.candidates.push_back(buildCandidateMsg(i, gapTubes, gapTrajs, gapTrajPoseCosts,

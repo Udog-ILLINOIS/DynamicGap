@@ -284,21 +284,20 @@ def episode_spans(events):
 
 
 def episode_settings(events, settings):
-    """{episode: task settings} from episodes.csv's reset rows (benchmark stages on
-    one map run in one session with their own timeout), else the session's."""
+    """{episode: task settings}: the timeout from episodes.csv's reset rows (benchmark
+    stages on one map run in one session with their own timeout), else the session's.
+    The goal radius is the session's: the robot manager reads it once at startup."""
     per_episode = {}
     for e in events:
         if e.get("event") != "reset":
             continue
         try:
             episode = int(e["episode"])
-            timeout, radius = float(e.get("timeout") or "nan"), float(e.get("goal_radius") or "nan")
+            timeout = float(e.get("timeout") or "nan")
         except (KeyError, ValueError):
             continue
-        per_episode[episode] = {
-            "timeout": settings["timeout"] if math.isnan(timeout) else (math.inf if timeout < 0 else timeout),
-            "goal_radius": settings["goal_radius"] if math.isnan(radius) else radius,
-        }
+        per_episode[episode] = dict(
+            settings, timeout=settings["timeout"] if math.isnan(timeout) else (math.inf if timeout < 0 else timeout))
     return per_episode
 
 
@@ -309,8 +308,8 @@ def episode_outcomes(samples, params, events=None):
     within the robot radius or the planner reported STATUS_COLLIDING (those
     ticks carry no scan, so the scan alone misses the contact itself). The duration comes from episodes.csv when it has
     the episode (the planner can stop ticking before the episode ends), else
-    from the samples; timeout and goal radius from its reset row there, else
-    from params.yaml."""
+    from the samples; the timeout from its reset row there, else from
+    params.yaml."""
     session_settings = task_settings(params)
     settings_of = episode_settings(events or [], session_settings)
     spans = episode_spans(events or [])
