@@ -52,7 +52,7 @@ def main():
         sys.exit("output folder {} is not empty".format(args.out))
 
     data = [il_train.load_split(args.data, s) for s in ("train", "val", "test")]
-    all_variants = variants(il_train.has_dg_costs(data[0]))
+    all_variants = variants(il_train.has_dg_costs([il_model.featurize(ex) for ex in data[0]]))
     names = [n for n in args.only.split(",") if n] or list(all_variants)
     unknown = set(names) - set(all_variants)
     if unknown:

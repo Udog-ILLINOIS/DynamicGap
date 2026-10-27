@@ -272,6 +272,30 @@ namespace dynamic_gap
                                        Trajectory & chosenTraj);
 
             /**
+            * \brief Manual and learned mode: after an episode reset, drop the previous
+            * episode's choice (caller holds manualSelectionMutex_)
+            */
+            void applyPendingSelectionReset();
+
+            /**
+            * \brief Manual and learned mode: follow the selected gap's trajectory; a gap
+            * with other model ids than the one followed starts a new tracked trajectory
+            * (caller holds manualSelectionMutex_)
+            * \param selectedIdx index into gapTubes / gapTrajs of the selection
+            * \param leftModelID left model id of the selection
+            * \param rightModelID right model id of the selection
+            * \param trajFlag set to GAP
+            * \param chosenTraj set to the selected trajectory
+            */
+            void followSelectedGap(const int & selectedIdx,
+                                   const int & leftModelID,
+                                   const int & rightModelID,
+                                   const std::vector<GapTube *> & gapTubes,
+                                   const std::vector<Trajectory> & gapTrajs,
+                                   int & trajFlag,
+                                   Trajectory & chosenTraj);
+
+            /**
             * \brief One candidate of the tick as recorded and as the learned scorer reads it
             * \param i index into the tick's gap tubes / trajectories
             * \param displayId number drawn next to the candidate, -1 if not shown

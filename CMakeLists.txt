@@ -23,7 +23,7 @@ find_package(Boost REQUIRED COMPONENTS system)
 find_package(Eigen3 REQUIRED)
 # reads the learned gap scorer's export (JSON)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
+pkg_check_modules(YAML_CPP REQUIRED IMPORTED_TARGET yaml-cpp)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -58,7 +58,6 @@ catkin_package(
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIRS}
-  ${YAML_CPP_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -94,7 +93,7 @@ add_library(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
 	${catkin_LIBRARIES}
 	${PYTHON_LIBRARIES}
-	${YAML_CPP_LIBRARIES}
+	PkgConfig::YAML_CPP
 )
 
 # Generated dynamic_reconfigure headers must exist before the library compiles

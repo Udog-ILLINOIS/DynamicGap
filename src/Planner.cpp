@@ -1009,16 +1009,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         trajFlag = NONE;
         chosenTraj = Trajectory();
 
-        if (manualResetPending_)
-        {
-            // episode reset (scenarioResetCB): drop the previous episode's choice
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
-            setCurrentTraj(Trajectory());
-            setCurrentLeftGapPtModelID(nullptr);
-            setCurrentRightGapPtModelID(nullptr);
-            manualResetPending_ = false;
-        }
+        applyPendingSelectionReset();
 
         //////// one candidate list per tick: drawn, selected from and recorded ////////
         currentManualCandidates_.clear();
@@ -1129,11 +1120,43 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         }
 
         const ManualCandidate & selected = currentManualCandidates_.at(selectedIdx);
+        followSelectedGap(selectedIdx, selected.left_model_id, selected.right_model_id, gapTubes, gapTrajs,
+                          trajFlag, chosenTraj);
+
+        sample.source = sample.SOURCE_GAP_CURSOR;
+        sample.selected_idx = selectedIdx;
+        sample.selected_left_model_id = selected.left_model_id;
+        sample.selected_right_model_id = selected.right_model_id;
+
+        return selectedIdx;
+    }
+
+    void Planner::applyPendingSelectionReset()
+    {
+        if (!manualResetPending_)
+            return;
+        // episode reset (scenarioResetCB): drop the previous episode's choice
+        selectedLeftModelID_ = -1;
+        selectedRightModelID_ = -1;
+        setCurrentTraj(Trajectory());
+        setCurrentLeftGapPtModelID(nullptr);
+        setCurrentRightGapPtModelID(nullptr);
+        manualResetPending_ = false;
+    }
+
+    void Planner::followSelectedGap(const int & selectedIdx,
+                                    const int & leftModelID,
+                                    const int & rightModelID,
+                                    const std::vector<GapTube *> & gapTubes,
+                                    const std::vector<Trajectory> & gapTrajs,
+                                    int & trajFlag,
+                                    Trajectory & chosenTraj)
+    {
         const Trajectory & selectedTraj = gapTrajs.at(selectedIdx);
 
         // a new gap (by model ids) starts a new tracked trajectory, like the
         // autonomous changeTrajectoryHelper; the same gap keeps its start time
-        if (selected.left_model_id != selectedLeftModelID_ || selected.right_model_id != selectedRightModelID_)
+        if (leftModelID != selectedLeftModelID_ || rightModelID != selectedRightModelID_)
         {
             Gap * gap = gapTubes.at(selectedIdx)->at(0);
             setCurrentTrajTrackingStartTime(ros::Time::now());
@@ -1141,8 +1164,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             setCurrentTrajLifespan(ros::Duration(timing.empty() ? 0.0 : timing.back() - timing.front()));
             setCurrentLeftGapPtModelID(gap->getLeftGapPt()->getModel());
             setCurrentRightGapPtModelID(gap->getRightGapPt()->getModel());
-            selectedLeftModelID_ = selected.left_model_id;
-            selectedRightModelID_ = selected.right_model_id;
+            selectedLeftModelID_ = leftModelID;
+            selectedRightModelID_ = rightModelID;
             trajectoryChangeCount_++;
         }
 
@@ -1151,13 +1174,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         trajVisualizer_->drawCurrentTrajectory(selectedTraj);
         trajFlag = GAP;
         chosenTraj = selectedTraj;
-
-        sample.source = sample.SOURCE_GAP_CURSOR;
-        sample.selected_idx = selectedIdx;
-        sample.selected_left_model_id = selected.left_model_id;
-        sample.selected_right_model_id = selected.right_model_id;
-
-        return selectedIdx;
     }
 
     manual_gap_msgs::ManualGapCandidate Planner::buildCandidateMsg(const size_t & i,
@@ -1256,16 +1272,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         trajFlag = NONE;
         chosenTraj = Trajectory();
 
-        if (manualResetPending_)
-        {
-            // episode reset (scenarioResetCB): drop the previous episode's choice
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
-            setCurrentTraj(Trajectory());
-            setCurrentLeftGapPtModelID(nullptr);
-            setCurrentRightGapPtModelID(nullptr);
-            manualResetPending_ = false;
-        }
+        applyPendingSelectionReset();
 
         // the model reads the sample, as recorded: robot state at this tick
         fillSampleObservation(sample);
@@ -1315,28 +1322,8 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         }
 
         const manual_gap_msgs::ManualGapCandidate & selected = sample.candidates.at(selectedIdx);
-        const Trajectory & selectedTraj = gapTrajs.at(selectedIdx);
-
-        // a new gap (by model ids) starts a new tracked trajectory, as in manual
-        // mode; the same gap keeps its start time
-        if (selected.left_model_id != selectedLeftModelID_ || selected.right_model_id != selectedRightModelID_)
-        {
-            Gap * gap = gapTubes.at(selectedIdx)->at(0);
-            setCurrentTrajTrackingStartTime(ros::Time::now());
-            const std::vector<float> timing = selectedTraj.getPathTiming();
-            setCurrentTrajLifespan(ros::Duration(timing.empty() ? 0.0 : timing.back() - timing.front()));
-            setCurrentLeftGapPtModelID(gap->getLeftGapPt()->getModel());
-            setCurrentRightGapPtModelID(gap->getRightGapPt()->getModel());
-            selectedLeftModelID_ = selected.left_model_id;
-            selectedRightModelID_ = selected.right_model_id;
-            trajectoryChangeCount_++;
-        }
-
-        // always the freshest trajectory through the chosen gap
-        setCurrentTraj(selectedTraj);
-        trajVisualizer_->drawCurrentTrajectory(selectedTraj);
-        trajFlag = GAP;
-        chosenTraj = selectedTraj;
+        followSelectedGap(selectedIdx, selected.left_model_id, selected.right_model_id, gapTubes, gapTrajs,
+                          trajFlag, chosenTraj);
 
         sample.selected_idx = selectedIdx;
         sample.selected_left_model_id = selected.left_model_id;

@@ -11,6 +11,7 @@ Even with the term, its scale makes it negligible: the cost is `Q_f = 0.05` time
 ## What changed
 - `il_model.dg_terms`: without recorded costs, the terminal cost is rebuilt as `Q_F · |terminal_rbt − local_waypoint|` (`TrajectoryEvaluator::terminalGoalCost`, both in the robot frame). The clearance cost cannot be rebuilt (needs the propagated scans) and is 0. It is then 0 for every candidate of the tick, so it does not change that tick's softmax.
 - `featurize` returns `dg_clearance` (a recorded clearance cost exists). `il_train`: the term is kept whenever some candidate has a terminal cost; with no recorded clearance cost its weight is fixed at 0 (it would never train, yet the planner applies it).
+- `il_train` stops with an error when the train or validation split is missing or empty (the validation split picks the kept epoch). `il_ablate` checks for DynamicGap's costs on featurized examples (it raised `KeyError: 'dg_avail'` on every dataset).
 - `il_train --terminal-weight-init W` (default 1) and `--terminal-weight-min W` (floor kept through training, default none). `result.json` has `dg_weight`.
 - The C++ scorer is unchanged: it already applies `dg_weight` to the live costs.
 

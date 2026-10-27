@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Gap scorer (il_model.py) on synthetic examples. Needs torch, not ROS."""
 
+import gzip
 import io
+import json
 import math
 import os
 import random
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -202,6 +205,35 @@ class TrainTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(out, "gap_scorer.json")))
         finally:
             shutil.rmtree(out)
+
+    def _splits(self, sizes):
+        rng = random.Random(4)
+        splits = []
+        for n in sizes:
+            exs = [example(rng, n=rng.randint(2, 5), episode=i // 8) for i in range(n)]
+            for t, ex in enumerate(exs):
+                ex["obs_tick"] = t
+                relabel(ex, lambda c: c["left_range"])
+            splits.append(exs)
+        return splits
+
+    def test_train_needs_a_validation_split(self):
+        with self.assertRaisesRegex(ValueError, "val split"):
+            il_train.train(None, {"epochs": 1}, log=io.StringIO(), data=self._splits((16, 0, 0)))
+
+    def test_ablation_runs(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            for split, exs in zip(("train", "val", "test"), self._splits((32, 16, 8))):
+                with gzip.open(os.path.join(tmp, split + ".jsonl.gz"), "wt") as f:
+                    f.writelines(json.dumps(ex) + "\n" for ex in exs)
+            out = os.path.join(tmp, "out")
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(il_train.__file__), "il_ablate"),
+                            "--data", tmp, "--out", out, "--seeds", "1", "--epochs", "1", "--only", "linear"],
+                           check=True, stdout=subprocess.DEVNULL)
+            self.assertTrue(os.path.exists(os.path.join(out, "summary.csv")))
+        finally:
+            shutil.rmtree(tmp)
 
 
 if __name__ == "__main__":
