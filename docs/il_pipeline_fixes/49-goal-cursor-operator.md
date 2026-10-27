@@ -13,7 +13,7 @@
   - No gap within the cone of the target (e.g. an obstacle in front of the goal): the planner would select nothing and the robot would hold still until the timeout. The cursor is then put on the trajectory end whose direction is closest to the target's.
   - Robot pose, goal and waypoint come from the planner's `manual_gap_sample` (one tick old). Nothing is published before the first planned sample.
 - `start_trials.launch`: `il_goal_cursor:=true` starts the node in the robot namespace (needs `man_gap:=true`); param `/il_goal_cursor`. The benchmark relaunch carries it (`_il_goal_cursor_args`).
-- `obstacles/random.py`: models are drawn uniformly (no `p=`). Every model had weight 1, so with more than one model in `RANDOM.<kind>.models` numpy raised "probabilities do not sum to 1" and the task generator died before the first episode.
+- `obstacles/random.py`: the model weights are normalised to probabilities (`_probabilities`). Every model has weight 1, so with more than one model in `RANDOM.<kind>.models` numpy raised "probabilities do not sum to 1" and the task generator died before the first episode.
 - Suites: `il_goal_cursor.yaml` (5 maps × 30 episodes: `map_empty`, `map_empty_medium`, `map1_small`, `experiment_rooms`, `small_warehouse`), `il_goal_cursor_pilot.yaml`. Random start and goal (`tm_robots: random`), no pedestrians, random static obstacles of the models that have a flatland YAML (shelf, long_shelf, table, pallet, office_desk, tree; `cuboid` and `cylinder` are Gazebo-only).
 
 ## Run
@@ -25,7 +25,7 @@ roslaunch arena_bringup start_trials.launch man_gap:=true il_goal_cursor:=true \
 ```
 Each map is its own session (`<runid>_<stage>`). Build with `--lag 0` (the node has no reaction time; its cursor is one tick old).
 
-Unattended, with a restart when move_base_flex dies (`mbf_costmap_nav` segfault at a reset): `il_tools/il_goal_cursor_collect il_goal_cursor.yaml --data-root /home/abdel/il_data`. It launches one stage at a time on the port of `ROS_MASTER_URI` and refuses to start when a master already runs there. It watches and stops only the processes it started (marked in their environment), so a run on another port is left alone. A stage counts as finished only when the benchmark log says `BENCHMARK COMPLETED SUCCESSFULLY`; any other end restarts it for the episodes not finished, and three launches in a row without a finished episode skip it.
+Unattended, with a restart when move_base_flex dies (`mbf_costmap_nav` segfault at a reset): `il_tools/il_goal_cursor_collect il_goal_cursor.yaml --data-root /home/abdel/il_data`. It launches one stage at a time on the port of `ROS_MASTER_URI` and refuses to start when a master, launch or pending benchmark relaunch is on that port. It watches and stops only the processes it started (marked in their environment), and its suite files and launch logs carry the port, so a run on another port is left alone. A stage counts as finished when its own benchmark run (found by the suite file in `configs/benchmark/logs`) logged `BENCHMARK COMPLETED SUCCESSFULLY`, also if move_base_flex exited first during that shutdown; any other end restarts it for the episodes not finished (counted in that run's sessions, `<runid>_<stage>`), and three launches in a row without a finished episode skip it.
 
 ## Effects
 - In a map with no obstacles the planner sees a single gap on every tick: pilot 1 (`map_empty`, 3 episodes, all reached the goal) had 431 usable ticks and `ticks_with_choice: 0`, nothing to learn. Hence the random obstacles.

@@ -52,7 +52,8 @@ def main():
         sys.exit("output folder {} is not empty".format(args.out))
 
     data = [il_train.load_split(args.data, s) for s in ("train", "val", "test")]
-    all_variants = variants(il_train.has_dg_costs([il_model.featurize(ex) for ex in data[0]]))
+    items = il_train.featurize_splits(*data)
+    all_variants = variants(il_train.has_dg_costs(items["train"]))
     names = [n for n in args.only.split(",") if n] or list(all_variants)
     unknown = set(names) - set(all_variants)
     if unknown:
@@ -66,7 +67,7 @@ def main():
             cfg = dict(all_variants[name], seed=seed, epochs=args.epochs)
             log = sys.stdout if args.verbose else io.StringIO()
             _, result = il_train.train(args.data, cfg, os.path.join(args.out, name, "seed{}".format(seed)),
-                                       log=log, log_every=10, data=data)
+                                       log=log, log_every=10, data=data, items=items)
             v = result["val"]
             rows.append(dict({"variant": name, "seed": seed, "best_epoch": result["best_epoch"]},
                              **{m: v.get(m) for m in METRICS}))

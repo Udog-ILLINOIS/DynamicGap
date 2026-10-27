@@ -43,6 +43,10 @@ def load_split(data_dir, split):
         return [json.loads(line) for line in f]
 
 
+def featurize_splits(tr, va, te):
+    return {k: [il_model.featurize(ex) for ex in v] for k, v in (("train", tr), ("val", va), ("test", te))}
+
+
 def has_dg_costs(items):
     """Whether the linear term can train: some candidate has DynamicGap's terminal cost (recorded or rebuilt)."""
     return any(it["dg_avail"].any() for it in items)
@@ -114,9 +118,10 @@ def fmt(m, keys=("nll", "top1", "top1_at_switches", "model_switch_rate")):
     return " ".join("{} {}".format(k, "-" if m.get(k) is None else "%.3f" % m[k]) for k in keys)
 
 
-def train(data_dir, cfg=None, out_dir=None, log=sys.stdout, log_every=1, data=None):
+def train(data_dir, cfg=None, out_dir=None, log=sys.stdout, log_every=1, data=None, items=None):
     """Train one model; returns (model, result). data: the three splits already
-    loaded (for ablations, so each run does not reload them)."""
+    loaded, items: featurized (featurize_splits) (for ablations, so each run does
+    not redo them)."""
     cfg = dict(DEFAULTS, **(cfg or {}))
     seed_all(cfg["seed"])
     tr, va, te = data or [load_split(data_dir, s) for s in ("train", "val", "test")]
@@ -124,7 +129,7 @@ def train(data_dir, cfg=None, out_dir=None, log=sys.stdout, log_every=1, data=No
     for split, examples in (("train", tr), ("val", va)):
         if not examples:
             raise ValueError("the {} split of {} is missing or empty".format(split, data_dir))
-    items = {k: [il_model.featurize(ex) for ex in v] for k, v in (("train", tr), ("val", va), ("test", te))}
+    items = items or featurize_splits(tr, va, te)
     if cfg["residual"] and not has_dg_costs(items["train"]):
         # the term would never train, yet the planner always has the costs and would apply it
         if not cfg["network"]:

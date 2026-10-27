@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""il_goal_cursor_collect: it watches and stops only the launches it started, and
-counts a stage as finished only when the benchmark logged its completion."""
+"""il_goal_cursor_collect: it watches and stops only the launches it started, refuses
+a port in use, and counts a stage as finished only when its own benchmark run logged
+its completion."""
 
 import importlib.machinery
 import importlib.util
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "il_goal_cursor_collect")
 
@@ -40,21 +42,37 @@ class TestCollect(unittest.TestCase):
             own.kill()
             other.kill()
 
-    def test_completed(self):
+    def test_benchmark_runs(self):
         c = self.collect
         with tempfile.TemporaryDirectory() as bench:
             os.makedirs(os.path.join(bench, "logs"))
             since = time.time() - 1
-            path = os.path.join(bench, "logs", "run.log")
+            path = os.path.join(bench, "logs", "dgap_1.log")
             with open(path, "w") as f:
-                f.write("run x\non suite il_goal_cursor_collect_a with 1 stages\n")
-            self.assertFalse(c.completed(bench, "il_goal_cursor_collect_a.yaml", since))
+                f.write("run dgap_1\nof contest dgap with 1 contestants\non suite il_goal_cursor_collect_11312_a with 1 stages\n")
+            with open(os.path.join(bench, "logs", "dgap_2.log"), "w") as f:  # the same stage on another port
+                f.write("run dgap_2\non suite il_goal_cursor_collect_11311_a with 1 stages\n"
+                        "1.0: BENCHMARK COMPLETED SUCCESSFULLY\n")
+            self.assertEqual([("dgap_1", False)], c.benchmark_runs(bench, "il_goal_cursor_collect_11312_a.yaml", since))
             with open(path, "a") as f:
                 f.write("1.0: BENCHMARK COMPLETED SUCCESSFULLY\n")
-            self.assertTrue(c.completed(bench, "il_goal_cursor_collect_a.yaml", since))
-            self.assertFalse(c.completed(bench, "il_goal_cursor_collect_a_r2.yaml", since))
-            self.assertFalse(c.completed(bench, "il_goal_cursor_collect_a.yaml", time.time() + 10))
+            self.assertEqual([("dgap_1", True)], c.benchmark_runs(bench, "il_goal_cursor_collect_11312_a.yaml", since))
+            self.assertEqual([], c.benchmark_runs(bench, "il_goal_cursor_collect_11312_a_r2.yaml", since))
+            self.assertEqual([], c.benchmark_runs(bench, "il_goal_cursor_collect_11312_a.yaml", time.time() + 10))
 
+    def test_port_in_use(self):
+        c = self.collect
+        # a pending relaunch of another driver (its environment names the port)
+        cmd = [sys.executable, "-c", "import time; time.sleep(30)", "delay_restart.py"]
+        proc = subprocess.Popen(cmd, env=dict(os.environ, ROS_MASTER_URI="http://localhost:59871"))
+        try:
+            time.sleep(0.3)
+            with unittest.mock.patch.dict(os.environ, {"ROS_MASTER_URI": "http://localhost:59871"}):
+                self.assertTrue(c.port_in_use())
+            with unittest.mock.patch.dict(os.environ, {"ROS_MASTER_URI": "http://localhost:59872"}):
+                self.assertFalse(c.port_in_use())
+        finally:
+            proc.kill()
 
 if __name__ == "__main__":
     unittest.main()

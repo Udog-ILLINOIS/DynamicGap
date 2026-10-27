@@ -35,26 +35,37 @@ PLANNER_PATTERN = "mbf_costmap_nav/mbf_costmap_nav"
 TAG = "IL_GOAL_CURSOR_COLLECT"
 
 
-def master_port():
-    return os.environ.get("ROS_MASTER_URI", "http://localhost:11311").rstrip("/").rsplit(":", 1)[-1]
+def master_port(env=os.environ):
+    return env.get("ROS_MASTER_URI", "http://localhost:11311").rstrip("/").rsplit(":", 1)[-1]
 
 
-def pids(pattern):
-    """This driver's processes whose command line matches pattern."""
+def environ(pid):
+    try:
+        with open("/proc/{}/environ".format(pid), "rb") as f:
+            entries = f.read().decode(errors="replace").split("\0")
+    except OSError:  # gone, or not ours to read
+        return None
+    return dict(e.split("=", 1) for e in entries if "=" in e)
+
+
+def pids(pattern, keep=lambda env: env.get(TAG) == str(os.getpid())):
+    """Processes whose command line matches pattern and whose environment keep accepts
+    (default: the ones this driver started)."""
     found = subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.PIPE, text=True).stdout.split()
-    own = []
-    for pid in found:
-        try:
-            with open("/proc/{}/environ".format(pid), "rb") as f:
-                if "{}={}".format(TAG, os.getpid()).encode() in f.read().split(b"\0"):
-                    own.append(pid)
-        except OSError:  # gone, or not ours to read
-            pass
-    return own
+    return [pid for pid in found if (env := environ(pid)) is not None and keep(env)]
 
 
 def running(pattern):
     return bool(pids(pattern))
+
+
+def port_in_use():
+    """A master, launch or pending benchmark relaunch on this driver's port."""
+    port = master_port()
+    if subprocess.run(["pgrep", "-f", "rosmaster.* -p {}( |$)".format(port)], stdout=subprocess.DEVNULL).returncode == 0:
+        return True
+    on_port = lambda env: master_port(env) == port
+    return any(pids(p, on_port) for p in ("rosmaster", "roslaunch", "delay_restart.py"))
 
 
 def stop_launch(timeout=60):
@@ -70,17 +81,18 @@ def stop_launch(timeout=60):
     time.sleep(3)
 
 
-def completed(benchmark_dir, suite_file, since):
-    """Whether a benchmark run of suite_file started after since logged its completion."""
+def benchmark_runs(benchmark_dir, suite_file, since):
+    """(run id, completed) of the benchmark runs of suite_file logged since since."""
     suite = os.path.splitext(suite_file)[0]
+    runs = []
     for path in glob.glob(os.path.join(benchmark_dir, "logs", "*.log")):
         if os.path.getmtime(path) < since:
             continue
         with open(path) as f:
-            text = f.read()
-        if "on suite {} with".format(suite) in text and "BENCHMARK COMPLETED SUCCESSFULLY" in text:
-            return True
-    return False
+            lines = f.read().splitlines()
+        if lines and lines[0].startswith("run ") and any(l.startswith("on suite {} with".format(suite)) for l in lines):
+            runs.append((lines[0][len("run "):], any(l.endswith("BENCHMARK COMPLETED SUCCESSFULLY") for l in lines)))
+    return runs
 
 
 def finished_episodes(session_dir):
@@ -99,18 +111,19 @@ def run_stage(stage, suites_dir, args, log):
     while remaining > 0:
         attempt += 1
         name = "{}_r{}".format(stage["name"], attempt) if attempt > 1 else stage["name"]
-        suite_file = "il_goal_cursor_collect_{}.yaml".format(name)
+        # per port: drivers on other ports run the same stage names
+        suite_file = "il_goal_cursor_collect_{}_{}.yaml".format(master_port(), name)
         with open(os.path.join(suites_dir, suite_file), "w") as f:
             yaml.safe_dump({"stages": [dict(stage, name=name, episodes=remaining)]}, f, sort_keys=False)
-        before = set(glob.glob(os.path.join(args.data_root, "il_gap_selection", "*_" + name)))
-        out = open(os.path.join(args.log_dir, "launch_{}.log".format(name)), "w")
+        launch_log = os.path.join(args.log_dir, "launch_{}_{}.log".format(master_port(), name))
+        out = open(launch_log, "w")
         print("{} {}: launching for {} episode(s)".format(time.strftime("%H:%M:%S"), name, remaining), file=log, flush=True)
+        started = time.time()
         subprocess.Popen(["roslaunch", "-p", master_port(), "arena_bringup", "start_trials.launch", "man_gap:=true",
                           "il_goal_cursor:=true", "tm_modules:=benchmark", "benchmark_suite:=" + suite_file,
                           "record_il:=true", "il_data_root:=" + args.data_root, "il_operator:=" + args.operator],
                          stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
                          env=dict(os.environ, **{TAG: str(os.getpid())}))
-        started = time.time()
         seen_planner, crashed, missing_since = False, False, None
         time.sleep(20)
         # the benchmark's first launch relaunches itself through delay_restart.py
@@ -124,21 +137,23 @@ def run_stage(stage, suites_dir, args, log):
                     crashed = True
                     break
             time.sleep(5)
-        sessions = set(glob.glob(os.path.join(args.data_root, "il_gap_selection", "*_" + name))) - before
-        done = sum(finished_episodes(s) for s in sessions)
-        if crashed:
-            print("{} {}: move_base_flex died after {} finished episode(s); restarting".format(
-                time.strftime("%H:%M:%S"), name, done), file=log, flush=True)
-            stop_launch()
-        elif completed(os.path.dirname(suites_dir), suite_file, started):
-            # the suite ended (the benchmark kills rosmaster): all episodes ran
+        # this launch's benchmark run: its log names the suite file, its sessions the run id
+        runs = benchmark_runs(os.path.dirname(suites_dir), suite_file, started)
+        done = sum(finished_episodes(os.path.join(args.data_root, "il_gap_selection", "{}_{}".format(runid, name)))
+                   for runid, _ in runs)
+        if any(ok for _, ok in runs):
+            # the suite ended (the benchmark kills rosmaster): all episodes ran, also
+            # when move_base_flex went first during the shutdown
             done = remaining
             print("{} {}: finished".format(time.strftime("%H:%M:%S"), name), file=log, flush=True)
+        elif crashed:
+            print("{} {}: move_base_flex died after {} finished episode(s); restarting".format(
+                time.strftime("%H:%M:%S"), name, done), file=log, flush=True)
         else:
             print("{} {}: the launch ended without completing the stage after {} finished episode(s)"
-                  " (see launch_{}.log); restarting".format(time.strftime("%H:%M:%S"), name, done, name),
+                  " (see {}); restarting".format(time.strftime("%H:%M:%S"), name, done, launch_log),
                   file=log, flush=True)
-            stop_launch()
+        stop_launch()
         remaining -= done
         failed = failed + 1 if done == 0 else 0
         if remaining > 0 and failed >= 3:
@@ -162,9 +177,9 @@ def main():
     wanted = [s for s in args.stages.split(",") if s]
     if wanted:
         stages = [s for s in stages if s["name"] in wanted]
-    if subprocess.run(["pgrep", "-f", "rosmaster --core -p {}( |$)".format(master_port())],
-                      stdout=subprocess.DEVNULL).returncode == 0:
-        sys.exit("a rosmaster is already running on port {} (set ROS_MASTER_URI to use another)".format(master_port()))
+    if port_in_use():
+        sys.exit("a rosmaster, launch or benchmark relaunch is already running on port {}"
+                 " (set ROS_MASTER_URI to use another)".format(master_port()))
     for stage in stages:
         run_stage(stage, suites_dir, args, sys.stdout)
 
