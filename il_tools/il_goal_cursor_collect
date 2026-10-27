@@ -83,6 +83,9 @@ def port_in_use():
 
 def stop_launch(timeout=60):
     """SIGINT the launch (and its relaunch), then SIGTERM what is left of it."""
+    # a pending benchmark relaunch would start once the master is gone
+    for pid in pids("delay_restart.py"):
+        subprocess.run(["kill", "-TERM", pid])
     for pid in pids(LAUNCH_PATTERN):
         subprocess.run(["kill", "-INT", pid])
     end = time.time() + timeout

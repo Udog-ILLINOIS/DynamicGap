@@ -19,6 +19,14 @@ TEST(ManualSelectionHelpers, DenseDisplayIds)
     EXPECT_TRUE(dynamic_gap::denseDisplayIds({}).empty());
 }
 
+TEST(ManualSelectionHelpers, HasModelIDs)
+{
+    EXPECT_TRUE(dynamic_gap::hasModelIDs(3, 4));
+    EXPECT_TRUE(dynamic_gap::hasModelIDs(0, 0));
+    EXPECT_FALSE(dynamic_gap::hasModelIDs(-1, 4));
+    EXPECT_FALSE(dynamic_gap::hasModelIDs(-1, -1));
+}
+
 TEST(ManualSelectionHelpers, NearestFeasibleCandidate)
 {
     std::vector<std::pair<float, float>> terminals = {{0.0f, 0.0f}, {1.0f, 0.0f}, {5.0f, 0.0f}};

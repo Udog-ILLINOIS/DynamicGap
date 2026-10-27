@@ -94,6 +94,15 @@ namespace dynamic_gap
     };
 
     /**
+    * \brief Whether a gap can be recognised at a later tick: both its gap points
+    * have models (a missing model has id -1, as has "no gap followed")
+    */
+    inline bool hasModelIDs(const int & leftModelID, const int & rightModelID)
+    {
+        return leftModelID != -1 && rightModelID != -1;
+    }
+
+    /**
     * \brief Numbers shown to the operator: 0, 1, 2, ... over the shown
     * candidates, -1 for the others
     * \param shown per candidate, whether it is drawn as selectable

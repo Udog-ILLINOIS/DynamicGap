@@ -1093,7 +1093,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         // the gap being followed, if it is still selectable
         int currentIdx = -1;
-        if (followingGap_)
+        if (hasModelIDs(selectedLeftModelID_, selectedRightModelID_))
         {
             for (size_t i = 0; i < currentManualCandidates_.size(); i++)
             {
@@ -1145,7 +1145,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
     {
         selectedLeftModelID_ = -1;
         selectedRightModelID_ = -1;
-        followingGap_ = false;
     }
 
     void Planner::followSelectedGap(const int & selectedIdx,
@@ -1160,7 +1159,9 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         // a new gap (by model ids) starts a new tracked trajectory, like the
         // autonomous changeTrajectoryHelper; the same gap keeps its start time
-        if (!followingGap_ || leftModelID != selectedLeftModelID_ || rightModelID != selectedRightModelID_)
+        // a gap without models (id -1) cannot be told from another one: always new
+        if (!hasModelIDs(leftModelID, rightModelID) ||
+            leftModelID != selectedLeftModelID_ || rightModelID != selectedRightModelID_)
         {
             Gap * gap = gapTubes.at(selectedIdx)->at(0);
             setCurrentTrajTrackingStartTime(ros::Time::now());
@@ -1170,7 +1171,6 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             setCurrentRightGapPtModelID(gap->getRightGapPt()->getModel());
             selectedLeftModelID_ = leftModelID;
             selectedRightModelID_ = rightModelID;
-            followingGap_ = true;
             trajectoryChangeCount_++;
         }
 
