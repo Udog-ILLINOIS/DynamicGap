@@ -1076,8 +1076,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         {
             sample.source = sample.SOURCE_CLICK_TO_MOVE;
             sample.click_point_odom = trajCreationPointOdomFrame_.point;
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
+            clearFollowedGap();
             chosenTraj = getCurrentTraj();
             return -1;
         }
@@ -1094,7 +1093,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         // the gap being followed, if it is still selectable
         int currentIdx = -1;
-        if (selectedLeftModelID_ != -1 || selectedRightModelID_ != -1)
+        if (followingGap_)
         {
             for (size_t i = 0; i < currentManualCandidates_.size(); i++)
             {
@@ -1114,8 +1113,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (selectedIdx < 0)
         {
             // nothing followed now: a gap selected later starts a new trajectory
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
+            clearFollowedGap();
             return -1;
         }
 
@@ -1136,12 +1134,18 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         if (!manualResetPending_)
             return;
         // episode reset (scenarioResetCB): drop the previous episode's choice
-        selectedLeftModelID_ = -1;
-        selectedRightModelID_ = -1;
+        clearFollowedGap();
         setCurrentTraj(Trajectory());
         setCurrentLeftGapPtModelID(nullptr);
         setCurrentRightGapPtModelID(nullptr);
         manualResetPending_ = false;
+    }
+
+    void Planner::clearFollowedGap()
+    {
+        selectedLeftModelID_ = -1;
+        selectedRightModelID_ = -1;
+        followingGap_ = false;
     }
 
     void Planner::followSelectedGap(const int & selectedIdx,
@@ -1156,7 +1160,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
 
         // a new gap (by model ids) starts a new tracked trajectory, like the
         // autonomous changeTrajectoryHelper; the same gap keeps its start time
-        if (leftModelID != selectedLeftModelID_ || rightModelID != selectedRightModelID_)
+        if (!followingGap_ || leftModelID != selectedLeftModelID_ || rightModelID != selectedRightModelID_)
         {
             Gap * gap = gapTubes.at(selectedIdx)->at(0);
             setCurrentTrajTrackingStartTime(ros::Time::now());
@@ -1166,6 +1170,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             setCurrentRightGapPtModelID(gap->getRightGapPt()->getModel());
             selectedLeftModelID_ = leftModelID;
             selectedRightModelID_ = rightModelID;
+            followingGap_ = true;
             trajectoryChangeCount_++;
         }
 
@@ -1294,8 +1299,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
             ROS_ERROR_STREAM_THROTTLE_NAMED(1.0, "Planner", "learned gap scorer not loaded (" << learnedGapScorerError_
                                             << "): holding still");
             sample.source = sample.SOURCE_NONE;
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
+            clearFollowedGap();
             return -1;
         }
         sample.source = sample.SOURCE_MODEL;
@@ -1316,8 +1320,7 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         {
             ROS_WARN_STREAM_THROTTLE_NAMED(1.0, "Planner", "learned gap scorer: no usable choice among "
                                            << sample.candidates.size() << " candidates, holding still");
-            selectedLeftModelID_ = -1;
-            selectedRightModelID_ = -1;
+            clearFollowedGap();
             return -1;
         }
 

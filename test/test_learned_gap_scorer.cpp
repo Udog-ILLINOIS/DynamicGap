@@ -314,6 +314,25 @@ TEST_F(LearnedPlannerTest, FollowsHighestScoreWithFiniteCost)
                      PlannerTestAccess::currentTraj(planner_).getPathOdomFrame().poses.back().position.y);
 }
 
+TEST_F(LearnedPlannerTest, NewChoiceStartsOneTrackedTrajectory)
+{
+    ASSERT_TRUE(PlannerTestAccess::loadLearnedScorer(planner_, FIXTURES + "/attention_model.json"));
+    Trajectory chosen;
+    int trajFlag = dynamic_gap::NONE;
+    int changes = PlannerTestAccess::trajectoryChangeCount(planner_);
+
+    manual_gap_msgs::ManualGapSample first = dynamic_gap::newManualSample();
+    int selected = select(first, trajFlag, chosen);
+    ASSERT_GE(selected, 0);
+    EXPECT_EQ(changes + 1, PlannerTestAccess::trajectoryChangeCount(planner_));
+    EXPECT_DOUBLE_EQ(2.5, PlannerTestAccess::currentLifespan(planner_).toSec());
+
+    // the same gap at the next tick is the same tracked trajectory
+    manual_gap_msgs::ManualGapSample second = dynamic_gap::newManualSample();
+    EXPECT_EQ(selected, select(second, trajFlag, chosen));
+    EXPECT_EQ(changes + 1, PlannerTestAccess::trajectoryChangeCount(planner_));
+}
+
 TEST_F(LearnedPlannerTest, NoUsableChoiceSelectsNothing)
 {
     ASSERT_TRUE(PlannerTestAccess::loadLearnedScorer(planner_, FIXTURES + "/attention_model.json"));

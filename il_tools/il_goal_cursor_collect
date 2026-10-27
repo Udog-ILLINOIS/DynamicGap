@@ -18,7 +18,6 @@ watched and stopped, so a run on another port is left alone.
 """
 
 import argparse
-import csv
 import glob
 import os
 import subprocess
@@ -28,7 +27,10 @@ import time
 import rospkg
 import yaml
 
-LAUNCH_PATTERN = "roslaunch arena_bringup"
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import il_bags  # noqa: E402
+
+LAUNCH_PATTERN = "roslaunch( -p [0-9]+)? arena_bringup"
 PLANNER_PATTERN = "mbf_costmap_nav/mbf_costmap_nav"
 # set in the environment of every launch this driver starts; the benchmark relaunch
 # (delay_restart.py) inherits it, so only these processes are watched and stopped
@@ -48,11 +50,24 @@ def environ(pid):
     return dict(e.split("=", 1) for e in entries if "=" in e)
 
 
-def pids(pattern, keep=lambda env: env.get(TAG) == str(os.getpid())):
-    """Processes whose command line matches pattern and whose environment keep accepts
-    (default: the ones this driver started)."""
+def process_port(pid, env):
+    """Master port of a process: its -p/--port argument (roslaunch, rosmaster), else ROS_MASTER_URI."""
+    try:
+        with open("/proc/{}/cmdline".format(pid), "rb") as f:
+            args = f.read().decode(errors="replace").split("\0")
+    except OSError:
+        args = []
+    for flag in ("-p", "--port"):
+        if flag in args[:-1]:
+            return args[args.index(flag) + 1]
+    return master_port(env)
+
+
+def pids(pattern, keep=lambda pid, env: env.get(TAG) == str(os.getpid())):
+    """Processes whose command line matches pattern and that keep(pid, environment)
+    accepts (default: the ones this driver started)."""
     found = subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.PIPE, text=True).stdout.split()
-    return [pid for pid in found if (env := environ(pid)) is not None and keep(env)]
+    return [pid for pid in found if (env := environ(pid)) is not None and keep(pid, env)]
 
 
 def running(pattern):
@@ -62,9 +77,7 @@ def running(pattern):
 def port_in_use():
     """A master, launch or pending benchmark relaunch on this driver's port."""
     port = master_port()
-    if subprocess.run(["pgrep", "-f", "rosmaster.* -p {}( |$)".format(port)], stdout=subprocess.DEVNULL).returncode == 0:
-        return True
-    on_port = lambda env: master_port(env) == port
+    on_port = lambda pid, env: process_port(pid, env) == port
     return any(pids(p, on_port) for p in ("rosmaster", "roslaunch", "delay_restart.py"))
 
 
@@ -97,11 +110,7 @@ def benchmark_runs(benchmark_dir, suite_file, since):
 
 def finished_episodes(session_dir):
     """Episodes of a session that ended: an episode ends when the next one begins."""
-    path = os.path.join(session_dir, "episodes.csv")
-    if not os.path.exists(path):
-        return 0
-    with open(path) as f:
-        begins = [int(r["episode"]) for r in csv.DictReader(f) if r["event"] == "begin"]
+    begins = [int(r["episode"]) for r in il_bags.load_episode_events(session_dir) if r["event"] == "begin"]
     return max(begins, default=0)
 
 
@@ -116,14 +125,14 @@ def run_stage(stage, suites_dir, args, log):
         with open(os.path.join(suites_dir, suite_file), "w") as f:
             yaml.safe_dump({"stages": [dict(stage, name=name, episodes=remaining)]}, f, sort_keys=False)
         launch_log = os.path.join(args.log_dir, "launch_{}_{}.log".format(master_port(), name))
-        out = open(launch_log, "w")
         print("{} {}: launching for {} episode(s)".format(time.strftime("%H:%M:%S"), name, remaining), file=log, flush=True)
         started = time.time()
-        subprocess.Popen(["roslaunch", "-p", master_port(), "arena_bringup", "start_trials.launch", "man_gap:=true",
-                          "il_goal_cursor:=true", "tm_modules:=benchmark", "benchmark_suite:=" + suite_file,
-                          "record_il:=true", "il_data_root:=" + args.data_root, "il_operator:=" + args.operator],
-                         stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
-                         env=dict(os.environ, **{TAG: str(os.getpid())}))
+        with open(launch_log, "w") as out:  # the launch keeps its own copy
+            subprocess.Popen(["roslaunch", "-p", master_port(), "arena_bringup", "start_trials.launch", "man_gap:=true",
+                              "il_goal_cursor:=true", "tm_modules:=benchmark", "benchmark_suite:=" + suite_file,
+                              "record_il:=true", "il_data_root:=" + args.data_root, "il_operator:=" + args.operator],
+                             stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                             env=dict(os.environ, **{TAG: str(os.getpid())}))
         seen_planner, crashed, missing_since = False, False, None
         time.sleep(20)
         # the benchmark's first launch relaunches itself through delay_restart.py

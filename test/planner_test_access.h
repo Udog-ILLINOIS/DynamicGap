@@ -79,6 +79,7 @@ namespace dynamic_gap
             { planner.pickTraj(trajFlag, trajIdx, gapTrajs, poseCosts, terminalCosts, {}, {}, {}, {}, {}, {}); }
             static Trajectory currentTraj(Planner & planner) { return planner.currentTraj_; }
             static ros::Duration currentLifespan(Planner & planner) { return planner.currentTrajLifespan_; }
+            static int trajectoryChangeCount(Planner & planner) { return planner.trajectoryChangeCount_; }
             static void setCurrentTraj(Planner & planner, const Trajectory & traj) { planner.currentTraj_ = traj; }
 
             static void setLearnedMode(Planner & planner, bool value) { planner.learnedSelectionMode_ = value; }

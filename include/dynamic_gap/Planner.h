@@ -189,6 +189,7 @@ namespace dynamic_gap
             bool manualResetPending_ = false; /**< Manual mode: an episode reset to apply at the next tick */
             int selectedLeftModelID_ = -1; /**< Identity of the cursor-selected gap */
             int selectedRightModelID_ = -1;
+            bool followingGap_ = false; /**< A gap is followed (its model ids may both be -1) */
             double manualMaxBearingDiff_ = M_PI / 3.0; /**< Selectable gaps: terminal within this bearing (rad) of the cursor, from the robot */
             double manualSwitchRatio_ = 0.7; /**< Another gap replaces the followed one only if its cursor distance is below this fraction */
 
@@ -276,6 +277,12 @@ namespace dynamic_gap
             * episode's choice (caller holds manualSelectionMutex_)
             */
             void applyPendingSelectionReset();
+
+            /**
+            * \brief Manual and learned mode: no gap followed; the next selection starts
+            * a new tracked trajectory (caller holds manualSelectionMutex_)
+            */
+            void clearFollowedGap();
 
             /**
             * \brief Manual and learned mode: follow the selected gap's trajectory; a gap

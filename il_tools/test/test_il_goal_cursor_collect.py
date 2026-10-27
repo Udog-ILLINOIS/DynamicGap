@@ -74,5 +74,26 @@ class TestCollect(unittest.TestCase):
         finally:
             proc.kill()
 
+    def test_launch_with_a_port_is_found(self):
+        c = self.collect
+        # the driver's own first launch ("roslaunch -p PORT arena_bringup ...") and the
+        # relaunch ("roslaunch arena_bringup ..."); a launch's -p wins over its environment
+        script = "import time; time.sleep(30)"
+        procs = [subprocess.Popen([sys.executable, "-c", script, "roslaunch", "-p", "59873", "arena_bringup"],
+                                  env=dict(os.environ, ROS_MASTER_URI="http://localhost:59874",
+                                           **{c.TAG: str(os.getpid())})),
+                 subprocess.Popen([sys.executable, "-c", script, "roslaunch", "arena_bringup", "x"],
+                                  env=dict(os.environ, **{c.TAG: str(os.getpid())}))]
+        try:
+            time.sleep(0.3)
+            self.assertEqual(sorted(str(p.pid) for p in procs), sorted(c.pids(c.LAUNCH_PATTERN)))
+            with unittest.mock.patch.dict(os.environ, {"ROS_MASTER_URI": "http://localhost:59873"}):
+                self.assertTrue(c.port_in_use())
+            with unittest.mock.patch.dict(os.environ, {"ROS_MASTER_URI": "http://localhost:59874"}):
+                self.assertFalse(c.port_in_use())
+        finally:
+            for p in procs:
+                p.kill()
+
 if __name__ == "__main__":
     unittest.main()
