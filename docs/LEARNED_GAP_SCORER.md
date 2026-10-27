@@ -95,6 +95,39 @@ scorer did not run or the candidate is not selectable).
 are not training labels (`il_bags.is_usable_label` needs the cursor);
 `il_bags.session_report` (in a dataset's `dataset.yaml`) counts them as `model_ticks`.
 
+## Evaluate on held-out scenarios (time to goal, collisions, video)
+
+`il_tools/il_eval_model` runs one or more models in closed loop on a benchmark suite and
+records the RViz window. Default suite `il_eval_heldout_v1.yaml`: the gru_learn scenarios
+left out of `il_dataset_small_v1` (50 pedestrians, middle starts; v3, v5, v7, v9, v10, v11
+and smartgap 11), one episode each, timeout 120 s.
+
+```
+source ~/il_overlay_ws/devel/setup.bash
+export ROS_MASTER_URI=http://localhost:11312        # a port no other run uses
+il_tools/il_eval_model --model full=/home/abdel/il_data/models/il_small_v1_full_seed0 \
+    --model nocoll=/home/abdel/il_data/models/il_small_v1_no_collisions_seed0 \
+    --out /home/abdel/il_data/evals/<name>
+il_tools/il_eval_model --report-only --out /home/abdel/il_data/evals/<name>   # metrics and videos again
+```
+
+Per model, one benchmark launch with `learned_gap_scorer:=true` and IL recording, on a
+virtual display of its own (Xvfb, software OpenGL; needs `sudo apt install xvfb`) that
+ffmpeg records, so nothing appears on the desktop. RViz's "Noetic end-of-life" dialog is
+switched off (`DISABLE_ROS1_EOL_WARNINGS`). It refuses a port in use and stops only the
+processes it started (`il_launch.py`, shared with `il_goal_cursor_collect`).
+
+Writes `<out>/<model>/`: `screen.mp4` (the whole run), `videos/epNN_<stage>.mp4` (each
+episode, cut by `episodes.csv` wall times, 1 s before to 1 s after), `metrics.csv`,
+`run.yaml`, `sessions/` (the IL session) and `launch.log`; `<out>/summary.csv` has one row
+per model. Metrics per episode (`il_eval.py`): outcome, time to goal (if reached), path
+length, contacts (runs of `STATUS_COLLIDING` ticks), colliding ticks and contact time,
+closest scan reading, closest pedestrian (centre distance), the longest planner stall. An
+episode in which the planner did not tick for more than 2 s (move_base_flex stalled or
+crashed) is `valid: false` and left out of the summary: the robot then coasts or stands.
+The benchmark writes `task_generator_<port>.yaml`, `resume_<port>.lock`, its log and an
+`arena_evaluation/data` folder, as any benchmark run on that port.
+
 ## Inputs: same as in training
 
 `LearnedGapScorer::featurize` computes `il_model.featurize` on the sample: gap
