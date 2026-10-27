@@ -197,8 +197,12 @@ def build_examples(session, samples, outcomes, opts, episodes=None):
                 counts["obs_invalid"] += 1
                 continue
             target = il_bags.selected_identity(tick)
-            matches = [k for k, c in enumerate(obs.candidates)
-                       if target is not None and c.feasible and il_bags.identity(c) == target]
+            if j == i:
+                # no lag: the label is the recorded choice, also for a gap without identity
+                matches = [tick.selected_idx]
+            else:
+                matches = [k for k, c in enumerate(obs.candidates)
+                           if target is not None and c.feasible and il_bags.identity(c) == target]
             if not matches:
                 counts["identity_lost"] += 1
                 continue

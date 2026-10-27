@@ -73,12 +73,16 @@ def sequences(examples):
 def stickiness(examples, picks):
     """Switch rate and blip rate of a sequence of picks (candidate positions)."""
     switches = blips = steps = 0
+    if all(il_model.gap_identity(c) is None for ex in examples for c in ex["candidates"]):
+        # no model ids recorded (older datasets): unknown
+        return {"switch_rate": 0.0, "blip_rate": 0.0}
     for seq in sequences(examples):
         ids = [il_model.gap_identity(examples[i]["candidates"][picks[i]]) for i in seq]
         steps += max(len(ids) - 1, 0)
-        # a step with an unknown gap (None) is neither a switch nor a blip
-        switches += sum(None not in (a, b) and a != b for a, b in zip(ids, ids[1:]))
-        blips += sum(None not in (a, b, c) and a == c != b for a, b, c in zip(ids, ids[1:], ids[2:]))
+        # a gap without identity (None) is a gap of its own, as the planner treats it
+        same = lambda a, b: a is not None and a == b  # noqa: E731
+        switches += sum(not same(a, b) for a, b in zip(ids, ids[1:]))
+        blips += sum(same(a, c) and not same(a, b) for a, b, c in zip(ids, ids[1:], ids[2:]))
     return {"switch_rate": switches / max(steps, 1), "blip_rate": blips / max(steps, 1)}
 
 

@@ -30,6 +30,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import il_bags
+
 
 TERMINAL_COST_CAP = 20.0   # m (times Q_f)
 Q_F = 0.05                 # DynamicGap's Q_f (traj.Q_f) in every recorded session
@@ -126,7 +128,7 @@ def gap_identity(c):
     """None if unknown: no model ids recorded (older datasets) or a gap point without
     a model (id -1), which the planner cannot tell from another gap."""
     ids = (c.get("left_model_id"), c.get("right_model_id"))
-    return None if None in ids or -1 in ids else ids
+    return None if None in ids else il_bags.known_identity(*ids)
 
 
 def decision_weights(examples, switch_weight=1.0, disagree_weight=1.0):
@@ -140,9 +142,11 @@ def decision_weights(examples, switch_weight=1.0, disagree_weight=1.0):
         w = 1.0
         key = (ex["session"], ex["episode"])
         ident = gap_identity(ex["candidates"][ex["label"]])
-        if ident is not None and prev.get(key) is not None and prev[key] != ident:
-            w += switch_weight
-        prev[key] = ident
+        if ident is not None:
+            # against the last known gap of the episode
+            if prev.get(key) is not None and prev[key] != ident:
+                w += switch_weight
+            prev[key] = ident
         if ex.get("dg_pick") is not None and ex["dg_pick"] >= 0 and ex["dg_pick"] != ex["label"]:
             w += disagree_weight
         weights.append(w)

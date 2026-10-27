@@ -1032,22 +1032,18 @@ void Planner::jointPoseAccCB(const nav_msgs::Odometry::ConstPtr & rbtOdomMsg,
         for (size_t i = 0; i < gapTrajs.size(); i++)
         {
             const geometry_msgs::PoseArray & path = gapTrajs.at(i).getPathOdomFrame();
-            Gap * gap = (i < gapTubes.size() && gapTubes.at(i)->size() > 0) ? gapTubes.at(i)->at(0) : nullptr;
-            Estimator * leftModel = gap ? gap->getLeftGapPt()->getModel() : nullptr;
-            Estimator * rightModel = gap ? gap->getRightGapPt()->getModel() : nullptr;
+            manual_gap_msgs::ManualGapCandidate cMsg = buildCandidateMsg(i, gapTubes, gapTrajs, gapTrajPoseCosts,
+                                                                         gapTrajTerminalPoseCosts, displayIds.at(i));
 
             ManualCandidate c;
-            c.display_id = displayIds.at(i);
+            c.display_id = cMsg.display_id;
             c.traj_flag = GAP;
             c.local_idx = i;
-            c.left_model_id = leftModel ? leftModel->getID() : -1;
-            c.right_model_id = rightModel ? rightModel->getID() : -1;
+            c.left_model_id = cMsg.left_model_id;
+            c.right_model_id = cMsg.right_model_id;
             c.feasible = feasible.at(i);
             c.path_odom_frame = path;
             currentManualCandidates_.push_back(c);
-
-            manual_gap_msgs::ManualGapCandidate cMsg = buildCandidateMsg(i, gapTubes, gapTrajs, gapTrajPoseCosts,
-                                                                         gapTrajTerminalPoseCosts, c.display_id);
 
             if (c.feasible)
             {

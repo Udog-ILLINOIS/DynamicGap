@@ -283,6 +283,25 @@ def episode_spans(events):
     return spans
 
 
+def episode_settings(events, settings):
+    """{episode: task settings} from episodes.csv's reset rows (benchmark stages on
+    one map run in one session with their own timeout), else the session's."""
+    per_episode = {}
+    for e in events:
+        if e.get("event") != "reset":
+            continue
+        try:
+            episode = int(e["episode"])
+            timeout, radius = float(e.get("timeout") or "nan"), float(e.get("goal_radius") or "nan")
+        except (KeyError, ValueError):
+            continue
+        per_episode[episode] = {
+            "timeout": settings["timeout"] if math.isnan(timeout) else (math.inf if timeout < 0 else timeout),
+            "goal_radius": settings["goal_radius"] if math.isnan(radius) else radius,
+        }
+    return per_episode
+
+
 def episode_outcomes(samples, params, events=None):
     """Outcome per episode id: GOAL_REACHED if the last pose is within the
     goal radius (plus the distance covered in one goal check), TIMEOUT if the
@@ -290,8 +309,10 @@ def episode_outcomes(samples, params, events=None):
     within the robot radius or the planner reported STATUS_COLLIDING (those
     ticks carry no scan, so the scan alone misses the contact itself). The duration comes from episodes.csv when it has
     the episode (the planner can stop ticking before the episode ends), else
-    from the samples."""
-    settings = task_settings(params)
+    from the samples; timeout and goal radius from its reset row there, else
+    from params.yaml."""
+    session_settings = task_settings(params)
+    settings_of = episode_settings(events or [], session_settings)
     spans = episode_spans(events or [])
     radius = robot_radius(params, samples)
     episodes = {}
@@ -312,6 +333,7 @@ def episode_outcomes(samples, params, events=None):
         else:
             duration = stamp(last.header.stamp) - stamp(first.header.stamp)
         min_range = min((min(s.scan.ranges) for s in ticks if s.scan.ranges), default=math.inf)
+        settings = settings_of.get(episode, session_settings)
         if distance < settings["goal_radius"] + speed * GOAL_CHECK_PERIOD:
             result = "GOAL_REACHED"
         elif duration >= settings["timeout"] - 1.0:

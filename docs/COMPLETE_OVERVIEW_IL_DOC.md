@@ -369,7 +369,10 @@ they can be enabled later (fix 31, D6).
    ±`man_gap_max_bearing_deg` (default 60°) of the robot-to-cursor bearing.
 2. Nearest terminal point to the cursor among those.
 3. Sticky: the followed gap is kept unless another is clearly nearer,
-   `dist < man_gap_switch_ratio × dist_current` (default 0.7).
+   `dist < man_gap_switch_ratio × dist_current` (default 0.7). A gap is
+   recognised by its left and right model ids; one with a gap point without
+   a model (id -1) cannot be, so it is never kept and each tick on it counts
+   as a new tracked trajectory (`hasModelIDs`; the offline tools do the same).
 
 Replaces the plan's v1 hover-nearest (D2), which switched gaps about every
 second tick. Both parameters are saved in `params.yaml`. Per-candidate

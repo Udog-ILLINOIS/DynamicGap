@@ -168,7 +168,7 @@ class ScorerTest(unittest.TestCase):
 
 
 class TrainTest(unittest.TestCase):
-    def test_unknown_identity_is_not_a_switch(self):
+    def test_unknown_identity(self):
         rng = random.Random(5)
         exs = [example(rng, n=2, episode=0) for _ in range(3)]
         for ex in exs:
@@ -178,11 +178,15 @@ class TrainTest(unittest.TestCase):
         for ex, (left, right) in zip(exs, ids):
             ex["candidates"][0]["left_model_id"], ex["candidates"][0]["right_model_id"] = left, right
         self.assertIsNone(il_model.gap_identity(exs[1]["candidates"][0]))
-        # (1,2) -> unknown -> (3,4): no step between two known gaps
-        self.assertEqual([1.0, 1.0, 1.0], il_model.decision_weights(exs, 1.0, 0.0))
+        # (1,2) -> unknown -> (3,4): a switch from the last known gap
+        self.assertEqual([1.0, 1.0, 2.0], il_model.decision_weights(exs, 1.0, 0.0))
         for t, ex in enumerate(exs):
             ex["obs_tick"] = t
-        self.assertEqual(0.0, il_train.stickiness(exs, [0, 0, 0])["switch_rate"])
+        # a gap without identity is a gap of its own: two switches
+        self.assertEqual(1.0, il_train.stickiness(exs, [0, 0, 0])["switch_rate"])
+        # (1,2) -> unknown -> (1,2): a blip
+        exs[2]["candidates"][0]["left_model_id"], exs[2]["candidates"][0]["right_model_id"] = 1, 2
+        self.assertEqual(0.5, il_train.stickiness(exs, [0, 0, 0])["blip_rate"])
 
     def test_stickiness(self):
         rng = random.Random(0)

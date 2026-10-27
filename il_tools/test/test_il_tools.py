@@ -161,6 +161,28 @@ class CheckTest(SessionTestCase):
         # episode 1 is still running when recording stops: duration from samples
         self.assertEqual(outcomes[1]["result"], "GOAL_REACHED")
 
+    def test_outcome_timeout_of_the_episode(self):
+        # one session over two benchmark stages: episode 0 runs with a 90 s timeout,
+        # episode 1 with 120 s; params.yaml has the first stage's (60 s here)
+        with open(os.path.join(self.dir, "episodes.csv"), "w") as f:
+            f.write("event,episode,wall_time,sim_time,start,goal,timeout,goal_radius\n"
+                    "reset,0,0,0.0,,,90.0,1.0\nbegin,1,0,95.0,,,90.0,1.0\n"
+                    "reset,1,0,96.0,,,120.0,1.0\nbegin,2,0,191.0,,,120.0,1.0\n")
+        events = il_bags.load_episode_events(self.dir)
+        settings = il_bags.episode_settings(events, {"timeout": 60.0, "goal_radius": 1.0})
+        self.assertEqual({0: {"timeout": 90.0, "goal_radius": 1.0}, 1: {"timeout": 120.0, "goal_radius": 1.0}},
+                         settings)
+        samples = self.good_samples()
+        for s in samples:  # never at the goal: TIMEOUT or ABORTED by duration alone
+            s.goal_robot_frame.x = 5.0
+        outcomes = il_bags.episode_outcomes(samples, il_bags.load_params(self.dir), events)
+        self.assertEqual("TIMEOUT", outcomes[0]["result"])  # 95 s of 90 s
+        self.assertEqual("ABORTED", outcomes[1]["result"])  # 95 s of 120 s (60 s would say TIMEOUT)
+        # older episodes.csv without the columns: the session's
+        self.assertEqual({0: {"timeout": 60.0, "goal_radius": 1.0}},
+                         il_bags.episode_settings([{"event": "reset", "episode": "0"}],
+                                                  {"timeout": 60.0, "goal_radius": 1.0}))
+
     def test_active_bag_detected(self):
         self.write(self.good_samples())
         open(os.path.join(self.dir, "session_1.bag.active"), "w").close()
@@ -310,6 +332,19 @@ class DatasetTest(SessionTestCase):
         # only tick 13 is paired with tick 11
         _, counts = self.build(lag_s=0.15)
         self.assertEqual(counts["identity_lost"], 1)
+
+    def test_gap_without_model_labelled_without_lag(self):
+        samples = self.good_samples()
+        s = samples[11]
+        s.candidates[s.selected_idx].right_model_id = -1
+        s.selected_right_model_id = -1
+        self.write(samples)
+        # without lag the label is the recorded index; with lag the gap cannot be found again
+        examples, counts = self.build(lag_s=0.0)
+        self.assertEqual(0, counts["identity_lost"])
+        self.assertIn(samples[11].selected_idx, [ex["label"] for ex in examples if ex["obs_tick"] == 11])
+        _, counts = self.build(lag_s=0.15)
+        self.assertGreaterEqual(counts["identity_lost"], 1)
 
     def test_unusable_ticks_and_thresholds(self):
         samples = self.good_samples()
