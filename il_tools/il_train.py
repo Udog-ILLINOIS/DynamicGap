@@ -259,6 +259,8 @@ def without_dg_costs(model):
     """The same network without the linear term on DynamicGap's costs, for a
     model trained (residual on) on data without costs: there the term was zero
     in training, while the planner always has the costs and would apply it."""
+    if not model.network:
+        raise ValueError("a linear model is only the term on DynamicGap's costs: nothing is left without it")
     sd = {k: v for k, v in model.state_dict().items() if k != "dg_weight"}
     norm = {k: sd[k] for k in ("cand_mean", "cand_std", "ctx_mean", "ctx_std")}
     out = il_model.GapScorer(norm, hidden=sd["cand_enc.0.weight"].shape[0], network=True, residual=False,

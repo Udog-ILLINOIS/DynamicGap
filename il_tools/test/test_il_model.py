@@ -245,6 +245,12 @@ class TrainTest(unittest.TestCase):
             splits.append(exs)
         return splits
 
+    def test_linear_model_has_no_network_without_costs(self):
+        norm = {"cand_mean": torch.zeros(len(il_model.CANDIDATE_FEATURES)), "cand_std": torch.ones(len(il_model.CANDIDATE_FEATURES)),
+                "ctx_mean": torch.zeros(len(il_model.CONTEXT_FEATURES)), "ctx_std": torch.ones(len(il_model.CONTEXT_FEATURES))}
+        with self.assertRaisesRegex(ValueError, "linear"):
+            il_train.without_dg_costs(il_model.GapScorer(norm, network=False, residual=True))
+
     def test_train_needs_a_validation_split(self):
         with self.assertRaisesRegex(ValueError, "val split"):
             il_train.train(None, {"epochs": 1}, log=io.StringIO(), data=self._splits((16, 0, 0)))

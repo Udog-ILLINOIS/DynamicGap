@@ -23,7 +23,10 @@ def main():
     out = args.out or os.path.join(args.run_dir, "gap_scorer.json")
     model = il_train.load(os.path.join(args.run_dir, "model.pt"))
     if args.without_dg_costs:
-        model = il_train.without_dg_costs(model)
+        try:
+            model = il_train.without_dg_costs(model)
+        except ValueError as e:
+            sys.exit("il_export_scorer: {}".format(e))
     elif model.residual:
         print("note: the model uses DynamicGap's costs; if it was trained on data without them "
               "(schema < 2), export with --without-dg-costs")
