@@ -468,9 +468,12 @@ roslaunch arena_bringup start_trials.launch man_gap:=true \
     record_il:=true il_data_root:=<data_root> il_operator:=<id> [il_session:=<name>]
 ```
 
-**Pilot run** (`~/run_il_pilot.sh [session]`, optional `PED_VMAX=<m/s>`): the
-same with `tm_modules:=benchmark benchmark_suite:=50ped_daniel.yaml`, data root
-`/home/abdel/il_data`, RViz under gdb. The 50ped_daniel suite uses the
+**Designed dataset** (`~/run_il_dataset.sh [session]`): the same with
+`tm_modules:=benchmark benchmark_suite:=il_dataset_small_v1.yaml`, data root
+`/home/abdel/il_data`, operator `ewan`, RViz under gdb.
+
+**Pilot run** (`~/run_il_pilot.sh [session]`, optional `PED_VMAX=<m/s>`; its
+sessions are preliminary): the same with the `50ped_daniel.yaml` suite. The 50ped_daniel suite uses the
 `gru_learn` map with a fixed start and goal per scenario, which avoids the
 spawn-in-collision problem of random starts on `map1_small` (II.12).
 
@@ -482,8 +485,11 @@ pedestrians at each reset, and `/scenario_reset` carries the new episode id.
   scenario file and seed (fix 39). The first launch relaunches itself
   (`benchmark_resume:=true`) to load the suite's map; the relaunch keeps IL
   recording and records into `<contest>_<date_time>_<first stage>` (fix 38).
-  It relaunches again only when the map changes, so one session folder covers
-  every following stage on that map. The short folder written before the first
+  It relaunches again only when the map, robot or task mode changes, so one
+  session folder covers every following stage on that map. Since fix 51 each
+  such stage gets its scenario, seed and timeout before the reset that starts
+  it (before, every stage ran one episode late), and `episodes.csv` records
+  each episode's timeout. The short folder written before the first
   relaunch holds no driving.
 - Pedestrian speed: `ped_vmax:=<m/s>` (fix 41). Pedestrians step on wall time
   while the robot runs on sim time, so relative to the robot they move faster
@@ -519,7 +525,8 @@ Consumers compare ids rather than arrival order: begin id > reset id means a
 reset is in progress; equal ids mean episode `<id>` is running. Resets are
 serialised by a lock, so a manual `/reset_task` during a timed reset gets the
 next id. `il_session_recorder` writes one `episodes.csv` row per begin and per
-reset, with wall and sim time, start and goal.
+reset, with wall and sim time, start, goal and (fix 51) the task generator's
+timeout.
 
 **Success.** IL sessions get their outcome from `il_bags.episode_outcomes`
 (II.8): `GOAL_REACHED`, `TIMEOUT` or `ABORTED`, plus a collision flag. The
@@ -551,7 +558,7 @@ starts `il_session_recorder` (fix 07). It:
   view.rviz         the RViz config used
   notes.txt         operator, instruction, start and stop time
   episodes.csv      one row per /scenario_reset_begin and /scenario_reset
-                    (wall and sim time, start and goal)
+                    (wall and sim time, start, goal, timeout)
   ```
 - **Records** (for `namespace:=rto`): `/rto/scan`, `/rto/odom`, `/rto/acc`,
   `/rto/cmd_vel`, `/tf`, `/tf_static`, `/map`, `/map_metadata`,
@@ -839,6 +846,7 @@ tick rates already match.
 | Pedsim steps on wall time (fix 41) | Pedestrians move faster than `vmax` relative to the robot when the sim runs below real time (~2.6× at RTF 0.37) | Open; fix belongs in pedsim_ros |
 | RViz segfault (exit -11, NVIDIA 470 GL) | Cursor messages stop; the last selection is held | Open, not caused by the tool; `rviz_prefix` (gdb) is not passed to benchmark relaunches |
 | Spawn in collision with random starts on `map1_small` | Every tick `COLLIDING`, robot holds still | Use a benchmark suite with fixed starts |
+| move_base_flex crashes (exit -11, segfault in `libmbf_abstract_server` / `libmbf_costmap_server`) | Seen at a reset, mid-episode and at a relaunch's start (2026-10-24 goal-cursor runs, 2 of 3 learned-scorer test runs on 2026-10-26). The planner stops; flatland keeps applying the last `cmd_vel`, so on straight scenarios the robot can coast into the goal and the episode looks reached. Samples and `cmd_vel` stop in the bag | Open, inside move_base_flex; stop the run and drop the episodes from the crash on; `il_goal_cursor_collect` restarts the stage |
 | mbf stops calling the planner | In one fake-cursor run, 22 s before the timeout and 2.9 m from the goal, with only empty global plans. The episode has a stretch without samples. Outcome is still right (duration from `episodes.csv`) and `max_lag_error_s` drops observations across the hole | Open; mbf logs are not captured |
 | Gap switches with the mouse still | Near-ties and gap ID churn (association can pass an ID to a nearby edge) | Reduced by fix 43; recheck in the pilot |
 | Collisions do not end episodes (fix 23) | Ticks after a collision come from non-expert states | Docs only; collision episodes are dropped offline |

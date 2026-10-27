@@ -53,7 +53,14 @@ then check `rospack find arena_bringup` still resolves (a subset build once left
 A model trained on data without DynamicGap's costs (schema < 2) must not carry
 the linear term: in training it was zero, while the planner always has the
 costs and would apply it. `il_train` now leaves it out by itself; older runs are
-exported with `il_export_scorer RUN_DIR --without-dg-costs`.
+exported with `il_export_scorer RUN_DIR --without-dg-costs` (refused for a linear model,
+which is that term alone). A training run needs non-empty train and validation
+splits; with few episodes pick an `il_build_dataset --seed` that puts one in `val`.
+
+Tested in closed loop on 2026-10-26 (pipeline test, `il_dataset_small_v1` CS1–CS4,
+a model trained on one goal-cursor episode): every tick `SOURCE_MODEL`, 4 of 4 goals
+reached. Two other runs lost move_base_flex to its own segfault (overview, known
+issues), not related to the scorer.
 
 ## When the scorer has no usable choice: the robot holds still
 

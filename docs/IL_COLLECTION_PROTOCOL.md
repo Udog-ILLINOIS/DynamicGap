@@ -11,7 +11,7 @@ current system is described in `COMPLETE_OVERVIEW_IL_DOC.md`.
 | Instruction given to operators (what to optimise: reach the goal quickly? safely? like a person would?) | **TODO** |
 | Operators, and their warm-up (e.g. 5 min unrecorded on `map_empty`) | **TODO** |
 | Session length and breaks | **TODO** (suggest ≤ 20 min, then a break) |
-| Maps, scenarios and pedestrian densities to cover (and `ped_vmax`) | **TODO** (pilot: benchmark suite `50ped_daniel.yaml` on `gru_learn`) |
+| Maps, scenarios and pedestrian densities to cover (and `ped_vmax`) | Designed dataset: benchmark suite `il_dataset_small_v1.yaml` on `gru_learn` (CS1–CS6, smartgap, 0_50ped_middle_start variants; held-out variants listed in the suite). Sessions up to 2026-10-26 (pilot, `50ped_daniel.yaml`) are preliminary |
 | Target size, in decisions (not ticks) per map/density | **TODO** |
 | RViz config (`view.rviz` is saved with each session; plan R-11, PL-26) | **TODO**: shipped `arena.rviz`, or a cut-down view matching the model inputs (D5). Either way decide whether the candidate-number display (`/rto/manual_candidate_markers`) is on; it is off in `arena.rviz` today. |
 | `data_root` (outside every git repo, D7) | **TODO** (pilot: `/home/abdel/il_data`) |
@@ -47,11 +47,23 @@ roslaunch arena_bringup start_trials.launch man_gap:=true \
     [man_gap_max_bearing_deg:=60 man_gap_switch_ratio:=0.7]
 ```
 
-The pilot script `~/run_il_pilot.sh [session]` (optional `PED_VMAX=<m/s>`)
-does this with the `50ped_daniel.yaml` benchmark suite. With a benchmark the
-first launch relaunches itself to load the suite's map and records into
-`<contest>_<date_time>_<first stage>`; the short folder written before the
-relaunch holds no driving. Random starts on `map1_small` can spawn the robot
+**Designed dataset:** `~/run_il_dataset.sh [session]` (copy in
+`.claude/skills/monitor-il-run/run_il_dataset.sh.example`) runs the
+`il_dataset_small_v1.yaml` suite with data root `/home/abdel/il_data`, operator
+`ewan` and RViz under gdb. The pilot script `~/run_il_pilot.sh [session]`
+(optional `PED_VMAX=<m/s>`) does the same with the `50ped_daniel.yaml` suite
+(preliminary data). With a benchmark the first launch relaunches itself to load
+the suite's map and records into `<contest>_<date_time>_<first stage>`; the
+short folder written before the relaunch holds no driving. All stages on that
+map run in this one session, each with its own scenario, seed and timeout from
+its first episode on (fix 51); the session's `episodes.csv` has each episode's
+timeout. A stage that changes the map, robot or task mode relaunches into a new
+session. To run only some stages, comment the others out in the suite file.
+
+If move_base_flex dies (`[rto/move_base_flex-5] process has died`, exit -11;
+a crash inside move_base_flex, not the planner), the robot keeps the last
+velocity command until the episode ends: stop the run, note it in
+`notes.txt`, and treat the episodes from the crash on as unusable. Random starts on `map1_small` can spawn the robot
 in collision; prefer a benchmark suite with fixed starts.
 
 A session name can be used once; the recorder refuses a non-empty folder.
