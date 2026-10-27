@@ -140,12 +140,13 @@ def run_stage(stage, suites_dir, args, log):
         time.sleep(20)
         # the benchmark's first launch relaunches itself through delay_restart.py
         while running(LAUNCH_PATTERN) or running("rosmaster") or running("delay_restart.py"):
-            if running(PLANNER_PATTERN):
-                seen_planner, missing_since = True, None
+            if running(PLANNER_PATTERN) or running("delay_restart.py"):
+                # a pending benchmark relaunch: the planner comes back with it
+                seen_planner, missing_since = seen_planner or running(PLANNER_PATTERN), None
             elif seen_planner:
-                # gone for 15 s (a relaunch also stops it briefly)
+                # gone for 60 s: a relaunch's new launch also takes a while to start it
                 missing_since = missing_since or time.time()
-                if time.time() - missing_since > 15:
+                if time.time() - missing_since > 60:
                     crashed = True
                     break
             time.sleep(5)

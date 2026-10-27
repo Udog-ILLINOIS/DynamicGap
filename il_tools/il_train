@@ -41,6 +41,8 @@ def main():
     unknown = set(groups) - set(il_model.INPUT_GROUPS)
     if unknown:
         parser.error("unknown input groups: {}".format(", ".join(sorted(unknown))))
+    if args.linear and args.no_residual:
+        parser.error("--linear is only the term on DynamicGap's costs: it cannot go with --no-residual")
     cfg = {"network": not args.linear, "residual": not args.no_residual, "attention": not args.no_attention,
            "groups": groups}
     cfg.update({k: getattr(args, k) for k in ("hidden", "epochs", "batch", "patience", "seed", "dropout", "lr",

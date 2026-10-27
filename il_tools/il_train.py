@@ -146,7 +146,8 @@ def train(data_dir, cfg=None, out_dir=None, log=sys.stdout, log_every=1, data=No
     model = build_model(cfg, il_model.normalizer(items["train"]))
     if cfg["residual"]:
         with torch.no_grad():
-            model.dg_weight[0] = max(cfg["terminal_weight_init"], cfg["terminal_weight_min"] or -math.inf)
+            floor = cfg["terminal_weight_min"]
+            model.dg_weight[0] = max(cfg["terminal_weight_init"], -math.inf if floor is None else floor)
     if cfg["residual"] and not has_clearance_costs(items["train"]):
         # only rebuilt terminal costs (schema < 2): the clearance weight would never
         # train, and the planner applies it; leave DynamicGap's clearance cost out
